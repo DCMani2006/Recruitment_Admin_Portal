@@ -425,8 +425,21 @@ export default function AdminPortal() {
     }
   };
 
+  // ADDED: Confirmation Alert for Batch Email Release
   const handleBatchReleaseShortlist = async () => {
     if (!token) return;
+    
+    const isConfirmed = window.confirm(
+      "🚨 ARE YOU ABSOLUTELY SURE?\n\n" +
+      "This will instantly send Interview Invite emails to all shortlisted candidates, " +
+      "and Polite Rejection emails to all graded candidates left unselected.\n\n" +
+      "Please ensure all Domain Heads are finished grading before clicking OK."
+    );
+
+    if (!isConfirmed) {
+      return; // Cancel execution if they clicked 'Cancel'
+    }
+
     const targetDom =
       adminUser?.role === "DOMAIN_HEAD" && adminUser?.domain
         ? adminUser.domain
@@ -567,7 +580,6 @@ export default function AdminPortal() {
     setSelectedInterviewApp(app);
     setReview2Marks(app.review2Marks ?? 0);
     setReview2Comments(app.review2Comments || "");
-    // Default to false, true only if they are officially SELECTED
     setIsFinalSelectedToggle(app.stage === "SELECTED");
   };
 
@@ -603,7 +615,6 @@ export default function AdminPortal() {
   const handleSaveReview2 = async (nextToggleState: boolean) => {
     if (!selectedInterviewApp || !token) return;
     
-    // Convert boolean toggle to stage string purely for saving
     const targetStage = nextToggleState ? "SELECTED" : "REJECTED";
 
     try {
@@ -619,7 +630,7 @@ export default function AdminPortal() {
             stage: targetStage,
             review2Marks: Number(review2Marks) || 0,
             review2Comments: review2Comments,
-            review2Passed: nextToggleState, // Strictly matches the toggle
+            review2Passed: nextToggleState,
           }),
         }
       );
