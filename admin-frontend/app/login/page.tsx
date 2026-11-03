@@ -6,6 +6,59 @@ import Image from "next/image";
 import { useAuth } from "@/lib/auth";
 import { IS_MOCK } from "@/lib/config";
 import { useToast } from "@/components/TickerToast";
+import { DOMAIN_LABELS, DomainEnum } from "@/lib/types";
+
+const DEMO_USERS = [
+  {
+    key: "root",
+    label: "Root Admin (all divisions)",
+    email: "root@tam.vit.ac.in",
+    role: "ROOT_ADMIN",
+    domain: null,
+  },
+  {
+    key: "DESIGN",
+    label: `Domain Head (${DOMAIN_LABELS.DESIGN})`,
+    email: "design.head@tam.vit.ac.in",
+    role: "DOMAIN_HEAD",
+    domain: "DESIGN" as DomainEnum,
+  },
+  {
+    key: "MARKETING",
+    label: `Domain Head (${DOMAIN_LABELS.MARKETING})`,
+    email: "marketing.head@tam.vit.ac.in",
+    role: "DOMAIN_HEAD",
+    domain: "MARKETING" as DomainEnum,
+  },
+  {
+    key: "R_AND_D",
+    label: `Domain Head (${DOMAIN_LABELS.R_AND_D})`,
+    email: "rd.head@tam.vit.ac.in",
+    role: "DOMAIN_HEAD",
+    domain: "R_AND_D" as DomainEnum,
+  },
+  {
+    key: "MANAGEMENT",
+    label: `Domain Head (${DOMAIN_LABELS.MANAGEMENT})`,
+    email: "management.head@tam.vit.ac.in",
+    role: "DOMAIN_HEAD",
+    domain: "MANAGEMENT" as DomainEnum,
+  },
+  {
+    key: "EDITORIAL",
+    label: `Domain Head (${DOMAIN_LABELS.EDITORIAL})`,
+    email: "editorial.head@tam.vit.ac.in",
+    role: "DOMAIN_HEAD",
+    domain: "EDITORIAL" as DomainEnum,
+  },
+  {
+    key: "TECHNICAL",
+    label: `Domain Head (${DOMAIN_LABELS.TECHNICAL})`,
+    email: "tech.head@tam.vit.ac.in",
+    role: "DOMAIN_HEAD",
+    domain: "TECHNICAL" as DomainEnum,
+  },
+];
 
 function mapErrorMessage(err: any): string {
   const msg = (err?.message || String(err || "")).toLowerCase();
@@ -62,8 +115,9 @@ function LoginFormContent() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string | null>>({});
+  const [selectedDemoKey, setSelectedDemoKey] = useState<string>("root");
 
-  const { login, setup, isAuthenticated } = useAuth();
+  const { login, setup, isAuthenticated, loading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { showToast } = useToast();
@@ -72,10 +126,10 @@ function LoginFormContent() {
   const queryMsg = searchParams.get("msg");
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (!authLoading && isAuthenticated) {
       router.push(redirectUrl);
     }
-  }, [isAuthenticated, redirectUrl, router]);
+  }, [authLoading, isAuthenticated, redirectUrl, router]);
 
   useEffect(() => {
     if (queryMsg === "session_expired") {
@@ -138,18 +192,26 @@ function LoginFormContent() {
     }
   };
 
-  const handleQuickMockLogin = async (asType: "root" | "design") => {
+  const handleDemoLogin = async () => {
     if (loading) return;
+    const target =
+      DEMO_USERS.find(
+        (u) =>
+          u.key === selectedDemoKey ||
+          u.email === selectedDemoKey ||
+          u.label === selectedDemoKey
+      ) || DEMO_USERS[0];
+
     setLoading(true);
     setErrorMsg(null);
     setFieldErrors({});
     try {
-      if (asType === "root") {
-        await login("root@tam.vit.ac.in", "password123");
+      await login(target.email, "password123");
+      if (target.role === "ROOT_ADMIN") {
         showToast("Signed in as Root Admin (All Desks).", "success");
       } else {
-        await login("design.head@tam.vit.ac.in", "password123");
-        showToast("Signed in as Domain Head (Design Desk).", "success");
+        const dLabel = target.domain ? DOMAIN_LABELS[target.domain] : "Division";
+        showToast(`Signed in as Domain Head (${dLabel}).`, "success");
       }
       router.push(redirectUrl);
     } catch (err: any) {
@@ -610,7 +672,7 @@ function LoginFormContent() {
       </form>
 
       {/* Demo Access: Render ONLY in mock mode */}
-      {IS_MOCK && (
+      {process.env.NEXT_PUBLIC_USE_MOCK !== "false" && (
         <div style={{ marginTop: "0.85rem", paddingTop: "0.75rem", borderTop: "1px solid var(--ink)" }}>
           <span
             style={{
@@ -621,43 +683,62 @@ function LoginFormContent() {
               textTransform: "uppercase",
               letterSpacing: "0.14em",
               color: "var(--ink-soft)",
-              marginBottom: "0.5rem",
+              marginBottom: "0.45rem",
               fontWeight: 600,
             }}
           >
             ✦ DEMO ACCESS ✦
           </span>
-          <div className="demo-buttons-row">
-            <button
-              type="button"
-              onClick={() => handleQuickMockLogin("design")}
-              className="ink-btn-secondary"
-              disabled={loading}
+          <div className="demo-access-control" style={{ width: "100%", boxSizing: "border-box" }}>
+            <label
+              htmlFor="demoUserSelect"
               style={{
-                flex: 1,
-                textAlign: "center",
+                display: "block",
+                fontFamily: "var(--font-label)",
                 fontSize: "0.74rem",
-                padding: "0.4rem 0.5rem",
-                whiteSpace: "nowrap",
+                textTransform: "uppercase",
+                letterSpacing: "0.1em",
+                marginBottom: "0.3rem",
+                color: "var(--ink)",
+                fontWeight: 700,
               }}
             >
-              Domain Head (Design)
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickMockLogin("root")}
-              className="ink-btn-secondary"
-              disabled={loading}
-              style={{
-                flex: 1,
-                textAlign: "center",
-                fontSize: "0.74rem",
-                padding: "0.4rem 0.5rem",
-                whiteSpace: "nowrap",
-              }}
-            >
-              Root Admin (All Desks)
-            </button>
+              SIGN IN AS
+            </label>
+            <div className="demo-control-row">
+              <select
+                id="demoUserSelect"
+                value={selectedDemoKey}
+                onChange={(e) => setSelectedDemoKey(e.target.value)}
+                className="newspaper-select demo-select"
+                disabled={loading}
+                style={{
+                  height: "36px",
+                  padding: "0.3rem 0.5rem",
+                  fontSize: "0.76rem",
+                }}
+              >
+                {DEMO_USERS.map((u) => (
+                  <option key={u.key} value={u.key}>
+                    {u.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleDemoLogin}
+                disabled={loading}
+                className="ink-btn demo-btn"
+                style={{
+                  height: "36px",
+                  padding: "0.35rem 0.8rem",
+                  fontSize: "0.74rem",
+                  letterSpacing: "0.08em",
+                }}
+              >
+                {loading ? "ENTERING..." : "ENTER AS SELECTED"}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -427,7 +427,33 @@ function loadStore(): MockStore {
     return init;
   }
   try {
-    return JSON.parse(raw);
+    const parsed: MockStore = JSON.parse(raw);
+    const initial = getInitialStore();
+    let updated = false;
+
+    // Safety: ensure all 7 deterministic admins exist and are claimed
+    if (!parsed.admins) parsed.admins = [];
+    for (const initAdmin of initial.admins) {
+      const existing = parsed.admins.find((a) => a.email.toLowerCase() === initAdmin.email.toLowerCase());
+      if (!existing) {
+        parsed.admins.push(initAdmin);
+        updated = true;
+      } else {
+        if (!existing.claimed || existing.passwordHash !== initAdmin.passwordHash || existing.name !== initAdmin.name) {
+          existing.claimed = true;
+          existing.passwordHash = initAdmin.passwordHash;
+          existing.name = initAdmin.name;
+          existing.domain = initAdmin.domain;
+          existing.role = initAdmin.role;
+          updated = true;
+        }
+      }
+    }
+
+    if (updated) {
+      saveStore(parsed);
+    }
+    return parsed;
   } catch (e) {
     const init = getInitialStore();
     saveStore(init);

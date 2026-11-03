@@ -306,15 +306,37 @@ h4 .num,
   background-color: rgba(28, 22, 19, 0.02);
 }
 
-.demo-buttons-row {
+.demo-control-row {
   display: flex;
   flex-direction: row;
   gap: 0.5rem;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
 }
 
-@media (max-width: 700px) {
-  .demo-buttons-row {
-    flex-direction: column;
+.demo-control-row .demo-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.demo-control-row .demo-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
+@media (max-width: 400px) {
+  .demo-control-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .demo-control-row .demo-select,
+  .demo-control-row .demo-btn {
+    width: 100% !important;
+    flex: 1 1 100% !important;
   }
 }
 

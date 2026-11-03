@@ -27,9 +27,9 @@ export const DEFAULT_TOKEN = "mock-jwt-token-admin-root";
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AdminUser | null>(DEFAULT_ROOT_ADMIN);
-  const [token, setToken] = useState<string | null>(DEFAULT_TOKEN);
-  const [loading, setLoading] = useState(false);
+  const [user, setUser] = useState<AdminUser | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
 
@@ -40,12 +40,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (storedToken && storedUser) {
         setToken(storedToken);
         setUser(JSON.parse(storedUser));
-      } else {
-        localStorage.setItem("admin_token", DEFAULT_TOKEN);
-        localStorage.setItem("admin_user", JSON.stringify(DEFAULT_ROOT_ADMIN));
       }
     } catch (e) {
       console.error("Failed to parse stored auth", e);
+    } finally {
+      setLoading(false);
     }
   }, []);
 

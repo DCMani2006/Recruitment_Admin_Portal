@@ -40,6 +40,12 @@ function FormBuilderContent() {
     (userDomain as DomainEnum) || "TECHNICAL"
   );
 
+  useEffect(() => {
+    if (!isRoot && userDomain) {
+      setSelectedDomain(userDomain as DomainEnum);
+    }
+  }, [isRoot, userDomain]);
+
   const [subsections, setSubsections] = useState<Subsection[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);

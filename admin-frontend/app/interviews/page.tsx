@@ -51,6 +51,12 @@ function InterviewLedgerContent() {
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!isRoot && userDomain) {
+      setSelectedDomain(userDomain);
+    }
+  }, [isRoot, userDomain]);
+
   // Load schedule
   const loadSchedule = useCallback(async () => {
     setLoading(true);

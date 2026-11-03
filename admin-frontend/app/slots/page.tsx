@@ -61,6 +61,12 @@ function SlotPlannerContent() {
     (userDomain as DomainEnum) || "TECHNICAL"
   );
 
+  useEffect(() => {
+    if (!isRoot && userDomain) {
+      setSelectedDomain(userDomain as DomainEnum);
+    }
+  }, [isRoot, userDomain]);
+
   // Form State
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
