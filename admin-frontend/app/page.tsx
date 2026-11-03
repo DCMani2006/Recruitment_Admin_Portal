@@ -1,1266 +1,449 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
+import { AuthGuard } from "@/components/AuthGuard";
+import { AdminShell } from "@/components/AdminShell";
+import { StageStamp } from "@/components/StageStamp";
+import { Num } from "@/components/Num";
+import { useAuth } from "@/lib/auth";
+import { api } from "@/lib/client";
+import { Application, Slot, DOMAIN_LABELS, ApplicationStage } from "@/lib/types";
+import { formatDate, formatTime, formatDateTime } from "@/lib/config";
 
-const RAW_BASE =
-  process.env.NEXT_PUBLIC_API_URL ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "http://localhost:5000";
-
-const API_BASE = RAW_BASE.replace(/\/+$/, "").endsWith("/api/admin")
-  ? RAW_BASE.replace(/\/+$/, "")
-  : `${RAW_BASE.replace(/\/+$/, "")}/api/admin`;
-
-const DOMAINS = [
-  "TECHNICAL",
-  "MANAGEMENT",
-  "DESIGN",
-  "MARKETING",
-  "R_AND_D",
-  "EDITORIAL",
-];
-
-const ADMIN_ALLOWED_STAGES = [
-  "SHORTLISTED",
-  "SLOT_CHOOSING",
-  "SELECTED",
-  "REJECTED",
-];
-
-export default function AdminPortal() {
-  const [token, setToken] = useState<string | null>(null);
-  const [adminUser, setAdminUser] = useState<{
-    id: string;
-    email: string;
-    role: string;
-    domain?: string;
-  } | null>(null);
-
-  const [authEmail, setAuthEmail] = useState("");
-  const [authPassword, setAuthPassword] = useState("");
-  const [authName, setAuthName] = useState("");
-  const [statusMsg, setStatusMsg] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
-
-  const [activeTab, setActiveTab] = useState<
-    "candidates" | "questions" | "slots" | "root"
-  >("candidates");
-
-  // 1. Candidates & Review State
-  const [filterDomain, setFilterDomain] = useState<string>("TECHNICAL");
-  const [candidates, setCandidates] = useState<any[]>([]);
-  const [selectedApp, setSelectedApp] = useState<any | null>(null);
-  const [questionScores, setQuestionScores] = useState<Record<string, number>>(
-    {}
+export default function OverviewPage() {
+  return (
+    <AuthGuard>
+      <AdminShell>
+        <OverviewContent />
+      </AdminShell>
+    </AuthGuard>
   );
-  const [reviewComments, setReviewComments] = useState("");
-  const [stageDecision, setStageDecision] = useState<string>("SHORTLISTED");
+}
 
-  // 2. Form Questions & Subsections State
-  const [questionDomain, setQuestionDomain] = useState<string>("TECHNICAL");
-  const [subsectionsList, setSubsectionsList] = useState<any[]>([]);
-  const [questionsList, setQuestionsList] = useState<any[]>([]);
-  const [newSubsectionName, setNewSubsectionName] = useState("");
-  const [selectedSubsectionId, setSelectedSubsectionId] = useState<string>("");
-  const [newQuestionText, setNewQuestionText] = useState("");
-  const [newQuestionMarks, setNewQuestionMarks] = useState<number>(10);
-  const [newQuestionOrder, setNewQuestionOrder] = useState<number>(1);
+function OverviewContent() {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  // 3. Calendly-Style Interview Slots State
-  const [slotDomain, setSlotDomain] = useState<string>("TECHNICAL");
-  const [slotDate, setSlotDate] = useState<string>("");
-  const [slotStartTime, setSlotStartTime] = useState<string>("10:00");
-  const [slotEndTime, setSlotEndTime] = useState<string>("11:00");
-  const [slotDuration, setSlotDuration] = useState<number>(20);
-  const [slotMeetingLink, setSlotMeetingLink] = useState<string>("");
-  const [slotsList, setSlotsList] = useState<any[]>([]);
+  const isRoot = user?.role === "ROOT_ADMIN";
+  const domainFilter = isRoot ? "ALL" : user?.domain || "ALL";
 
-  // 4. Root Admin Whitelist State
-  const [assignDomain, setAssignDomain] = useState<string>("TECHNICAL");
-  const [assignEmails, setAssignEmails] = useState<string>("");
-
-  const notify = (type: "success" | "error", text: string) => {
-    setStatusMsg({ type, text });
-    setTimeout(() => setStatusMsg(null), 6000);
-  };
-
-  const parseJwt = (tk: string) => {
-    try {
-      return JSON.parse(atob(tk.split(".")[1]));
-    } catch {
-      return {};
-    }
-  };
-
-  // Restore token & session from localStorage on load
   useEffect(() => {
-    const savedToken = localStorage.getItem("admin_token");
-    if (savedToken) {
-      const decoded = parseJwt(savedToken);
-      if (decoded.exp && decoded.exp * 1000 < Date.now()) {
-        localStorage.removeItem("admin_token");
-      } else {
-        setToken(savedToken);
-        const userObj = {
-          id: decoded.id,
-          email: decoded.email,
-          role: decoded.role,
-          domain: decoded.domain,
-        };
-        setAdminUser(userObj);
-        if (userObj.domain) {
-          setFilterDomain(userObj.domain);
-          setQuestionDomain(userObj.domain);
-          setSlotDomain(userObj.domain);
-        }
-      }
-    }
-  }, []);
+    let mounted = true;
 
-  // Auth Handler (/login and /setup)
-  const handleAuth = async (endpoint: "/login" | "/setup") => {
-    try {
-      const res = await fetch(`${API_BASE}${endpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: authEmail.trim().toLowerCase(),
-          password: authPassword,
-          ...(endpoint === "/setup" && authName ? { name: authName.trim() } : {}),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Authentication failed");
-
-      const decoded = parseJwt(data.token);
-      const userObj = {
-        id: data.id || data.admin?.id || decoded.id,
-        email: data.email || data.admin?.email || decoded.email || authEmail,
-        role: data.role || data.admin?.role || decoded.role,
-        domain: data.domain || data.admin?.domain || decoded.domain,
-      };
-
-      setToken(data.token);
-      localStorage.setItem("admin_token", data.token);
-      setAdminUser(userObj);
-
-      const defaultDom = userObj.domain || "TECHNICAL";
-      setFilterDomain(defaultDom);
-      setQuestionDomain(defaultDom);
-      setSlotDomain(defaultDom);
-
-      notify(
-        "success",
-        endpoint === "/setup"
-          ? "Password created & logged in successfully!"
-          : `Logged in as ${userObj.email}`
-      );
-    } catch (err: any) {
-      notify("error", err.message || "Authentication failed");
-    }
-  };
-
-  // 1. Fetch Submitted Candidates
-  const fetchCandidates = async (dom = filterDomain) => {
-    if (!token) return;
-    try {
-      const query = dom && dom !== "ALL" ? `?domain=${dom}` : "";
-      const res = await fetch(`${API_BASE}/applicants${query}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || "Failed to fetch applicants");
-
-      const rawList = json.data || json.applicants || [];
-      const submittedOnly = rawList.filter((app: any) => Boolean(app.submittedAt));
-      setCandidates(submittedOnly);
-    } catch (err: any) {
-      notify("error", err.message);
-    }
-  };
-
-  const handleSelectCandidate = async (app: any) => {
-    setSelectedApp(app);
-    setReviewComments(app.review1Comments || "");
-    setStageDecision(
-      ADMIN_ALLOWED_STAGES.includes(app.stage) ? app.stage : "SHORTLISTED"
-    );
-
-    let answersList = app.user?.answers || [];
-
-    if (answersList.length === 0 && app.userId && token) {
+    async function loadData() {
+      setLoading(true);
+      setError(null);
       try {
-        const res = await fetch(`${API_BASE}/applicants/${app.userId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const json = await res.json();
-        if (res.ok && json.data?.answers) {
-          answersList = json.data.answers;
-          setSelectedApp({
-            ...app,
-            user: { ...app.user, answers: answersList },
-          });
+        const [appsData, slotsData] = await Promise.all([
+          api.getApplicants(domainFilter),
+          api.getSchedule("ALL", false, domainFilter === "ALL" ? undefined : domainFilter),
+        ]);
+        if (mounted) {
+          setApplications(appsData);
+          setSlots(slotsData);
         }
-      } catch {
-        // Ignore fallback error
+      } catch (err: any) {
+        if (mounted) {
+          setError(err.message || "Failed to load overview data.");
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
       }
     }
 
-    const scores: Record<string, number> = {};
-    answersList
-      .filter(
-        (ans: any) => !ans.question?.domain || ans.question.domain === app.domain
-      )
-      .forEach((ans: any) => {
-        scores[ans.id] = ans.marks ?? 0;
-      });
-    setQuestionScores(scores);
+    loadData();
+    return () => {
+      mounted = false;
+    };
+  }, [domainFilter]);
+
+  // Stage counts
+  const stageCounts: Record<ApplicationStage, number> = {
+    FORM_FILLING: 0,
+    SHORTLISTED: 0,
+    SLOT_CHOOSING: 0,
+    INTERVIEW: 0,
+    SELECTED: 0,
+    REJECTED: 0,
   };
 
-  const totalCalculatedMarks = Object.values(questionScores).reduce(
-    (sum, val) => sum + (Number(val) || 0),
-    0
-  );
-
-  const handleSaveEvaluation = async () => {
-    if (!selectedApp || !token) return;
-    try {
-      const answerScores = Object.entries(questionScores).map(
-        ([answerId, marks]) => ({
-          answerId,
-          marks: Number(marks) || 0,
-        })
-      );
-
-      const res = await fetch(
-        `${API_BASE}/applicants/${selectedApp.id}/review`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            stage: stageDecision,
-            review1Marks: totalCalculatedMarks,
-            review1Comments: reviewComments,
-            review1Passed:
-              stageDecision === "SHORTLISTED" || stageDecision === "SELECTED",
-            answerScores,
-          }),
-        }
-      );
-
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || "Failed to save evaluation");
-
-      notify("success", "Question marks & stage decision saved!");
-      fetchCandidates(filterDomain);
-    } catch (err: any) {
-      notify("error", err.message);
+  applications.forEach((app) => {
+    if (stageCounts[app.stage] !== undefined) {
+      stageCounts[app.stage]++;
     }
-  };
+  });
 
-  // 2. Fetch Form Questions & Subsections
-  const fetchFormQuestions = async (dom = questionDomain) => {
-    if (!token) return;
-    try {
-      const res = await fetch(`${API_BASE}/form?domain=${dom}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || "Failed to fetch questions");
+  // True count of applications waiting for review
+  const underReviewCount = stageCounts.FORM_FILLING;
 
-      setSubsectionsList(json.data?.subsections || []);
-      setQuestionsList(json.data?.questions || []);
-    } catch (err: any) {
-      notify("error", err.message);
+  // Oldest unreviewed submissions (showing the oldest 5)
+  const oldestUnreviewed = [...applications]
+    .filter((a) => a.stage === "FORM_FILLING")
+    .sort((a, b) => new Date(a.submittedAt || 0).getTime() - new Date(b.submittedAt || 0).getTime())
+    .slice(0, 5);
+
+  // Today's scheduled interviews in Asia/Kolkata
+  const todayFormattedKolkata = formatDate(new Date(), false);
+  const todayInterviews: {
+    slot: Slot;
+    booking: any;
+    startTime: string;
+  }[] = [];
+
+  slots.forEach((s) => {
+    if (s.bookings && s.bookings.length > 0) {
+      const slotDateFormatted = formatDate(s.startTime, false);
+      if (slotDateFormatted === todayFormattedKolkata) {
+        s.bookings.forEach((b) => {
+          todayInterviews.push({
+            slot: s,
+            booking: b,
+            startTime: s.startTime,
+          });
+        });
+      }
     }
-  };
+  });
 
-  const handleCreateSubsection = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token || !newSubsectionName.trim()) return;
-    try {
-      const res = await fetch(`${API_BASE}/form/subsection`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: newSubsectionName.trim(),
-          domain: questionDomain,
-          order: subsectionsList.length + 1,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || "Failed to create subsection");
+  // Sort today's interviews chronologically
+  todayInterviews.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
 
-      setNewSubsectionName("");
-      notify("success", "Form subsection created!");
-      fetchFormQuestions(questionDomain);
-    } catch (err: any) {
-      notify("error", err.message);
-    }
-  };
+  const divisionHeaderLabel = isRoot
+    ? "ALL DIVISIONS"
+    : user?.domain ? DOMAIN_LABELS[user.domain].toUpperCase() : "GENERAL";
 
-  const handleCreateQuestion = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token || !newQuestionText.trim()) return;
-    try {
-      const res = await fetch(`${API_BASE}/form/question`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          text: newQuestionText.trim(),
-          domain: questionDomain,
-          subsectionId: selectedSubsectionId || null,
-          maxMarks: Number(newQuestionMarks) || 10,
-          order: Number(newQuestionOrder) || questionsList.length + 1,
-          required: true,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || "Failed to create question");
+  const deckText = isRoot
+    ? "Submitted applications, review progress and interviews across all divisions."
+    : "Submitted applications, review progress and interviews for your division.";
 
-      setNewQuestionText("");
-      setNewQuestionOrder((prev) => prev + 1);
-      notify("success", "Question & marks added to domain form!");
-      fetchFormQuestions(questionDomain);
-    } catch (err: any) {
-      notify("error", err.message);
-    }
-  };
+  const todayDateString = formatDate(new Date(), false);
 
-  // 3. Fetch Slots
-  const fetchSlots = async (dom = slotDomain) => {
-    if (!token || !adminUser?.id) return;
-    try {
-      const targetAdminId =
-        adminUser.role === "ROOT_ADMIN" ? "ALL" : adminUser.id;
-      const res = await fetch(
-        `${API_BASE}/schedule/${targetAdminId}?all=true&domain=${dom}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || "Failed to fetch slots");
-      setSlotsList(json.data || []);
-    } catch (err: any) {
-      notify("error", err.message);
-    }
-  };
-
-  const handleCreateSlots = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token || !slotDate || !slotStartTime || !slotEndTime) {
-      notify("error", "Please select a calendar date, start time, and end time.");
-      return;
-    }
-
-    const startISO = new Date(`${slotDate}T${slotStartTime}:00`).toISOString();
-    const endISO = new Date(`${slotDate}T${slotEndTime}:00`).toISOString();
-
-    if (new Date(endISO) <= new Date(startISO)) {
-      notify("error", "End time must be after start time.");
-      return;
-    }
-
-    try {
-      const res = await fetch(`${API_BASE}/slots`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          interviewerId: adminUser?.id,
-          domain: slotDomain,
-          startTime: startISO,
-          endTime: endISO,
-          durationMinutes: Number(slotDuration) || 20,
-          meetingLink: slotMeetingLink.trim(),
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || "Failed to create slots");
-
-      notify("success", json.message || "Interview slots created!");
-      fetchSlots(slotDomain);
-    } catch (err: any) {
-      notify("error", err.message);
-    }
-  };
-
-  // 4. Root Admin Whitelist
-  const handleAssignDomainHeads = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token || !assignEmails.trim()) return;
-
-    const emailArray = assignEmails
-      .split(",")
-      .map((em) => em.trim().toLowerCase())
-      .filter(Boolean);
-
-    try {
-      const res = await fetch(`${API_BASE}/domain-heads`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          domain: assignDomain,
-          emails: emailArray,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || "Failed to assign domain heads");
-
-      setAssignEmails("");
-      notify("success", json.message || "Domain head(s) whitelisted!");
-    } catch (err: any) {
-      notify("error", err.message);
-    }
-  };
-
-  useEffect(() => {
-    if (token) {
-      fetchCandidates(filterDomain);
-    }
-  }, [token]);
+  const tilesConfig = [
+    {
+      stage: "FORM_FILLING" as ApplicationStage,
+      label: "Under Review",
+      count: stageCounts.FORM_FILLING,
+      caption: "Waiting for Round 1 review",
+    },
+    {
+      stage: "SHORTLISTED" as ApplicationStage,
+      label: "Shortlisted",
+      count: stageCounts.SHORTLISTED,
+      caption: "Passed Round 1",
+    },
+    {
+      stage: "SLOT_CHOOSING" as ApplicationStage,
+      label: "Slot Choosing",
+      count: stageCounts.SLOT_CHOOSING,
+      caption: "Choosing an interview slot",
+    },
+    {
+      stage: "INTERVIEW" as ApplicationStage,
+      label: "Interview",
+      count: stageCounts.INTERVIEW,
+      caption: "Interview booked",
+    },
+    {
+      stage: "SELECTED" as ApplicationStage,
+      label: "Selected",
+      count: stageCounts.SELECTED,
+      caption: "Selected",
+    },
+    {
+      stage: "REJECTED" as ApplicationStage,
+      label: "Rejected",
+      count: stageCounts.REJECTED,
+      caption: "Not taken forward",
+    },
+  ];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Top Bar */}
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-wrap justify-between items-center gap-4">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">
-              Recruitment Admin & Evaluation Portal
-            </h1>
-            <p className="text-xs text-slate-500">
-              Domain Form Builder • Per-Question Candidate Grading • Calendly-Style Slot Scheduler
-            </p>
-          </div>
-          {adminUser && (
-            <div className="flex items-center gap-4">
-              <span className="text-xs font-semibold bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg border border-indigo-200">
-                {adminUser.email} ({adminUser.role}
-                {adminUser.domain ? ` - ${adminUser.domain}` : ""})
-              </span>
-              <button
-                onClick={() => {
-                  localStorage.removeItem("admin_token");
-                  setToken(null);
-                  setAdminUser(null);
-                  setSelectedApp(null);
-                }}
-                className="text-xs text-red-600 hover:underline font-semibold"
-              >
-                Logout
-              </button>
-            </div>
-          )}
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.75rem" }}>
+      {/* Front Page Headline */}
+      <section style={{ borderBottom: "2px solid var(--ink)", paddingBottom: "1.1rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.25rem" }}>
+          <span className="kicker">
+            ✦ TODAY AT A GLANCE ✦
+          </span>
+          <span style={{ fontFamily: "var(--font-label)", fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.15em", color: "var(--ink-soft)" }}>
+            <Num>{todayDateString}</Num> · IST
+          </span>
         </div>
 
-        {/* Status Alert */}
-        {statusMsg && (
-          <div
-            className={`p-4 rounded-xl text-sm font-medium border ${
-              statusMsg.type === "success"
-                ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                : "bg-red-50 text-red-800 border-red-200"
-            }`}
-          >
-            {statusMsg.text}
-          </div>
-        )}
+        <h1
+          className="headline"
+          style={{
+            fontSize: "clamp(2rem, 3.4vw, 3rem)",
+            margin: "0.25rem 0",
+            letterSpacing: "-0.01em",
+          }}
+        >
+          {divisionHeaderLabel}: <Num>{applications.length}</Num> APPLICATIONS
+        </h1>
 
-        {/* Login / First-Time Setup Screen */}
-        {!token ? (
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 max-w-2xl">
-            <h2 className="text-base font-bold mb-1">
-              Admin & Domain Head Authentication
-            </h2>
-            <p className="text-xs text-slate-500 mb-4">
-              If your email was whitelisted by the Root Admin, enter your email and a new password and click{" "}
-              <strong>Create First-Time Password</strong>.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-              <input
-                type="email"
-                placeholder="Admin Email"
-                value={authEmail}
-                onChange={(e) => setAuthEmail(e.target.value)}
-                className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
-              />
-              <input
-                type="password"
-                placeholder="Password"
-                value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
-              />
-              <input
-                type="text"
-                placeholder="Your Name (for first-time setup)"
-                value={authName}
-                onChange={(e) => setAuthName(e.target.value)}
-                className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
-              />
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={() => handleAuth("/login")}
-                className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-5 py-2 rounded-lg"
-              >
-                Login
-              </button>
-              <button
-                onClick={() => handleAuth("/setup")}
-                className="bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold px-5 py-2 rounded-lg"
-              >
-                Create First-Time Password (/setup)
-              </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Navigation Tabs */}
-            <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
-              <button
-                onClick={() => {
-                  setActiveTab("candidates");
-                  fetchCandidates(filterDomain);
-                }}
-                className={`px-4 py-2 rounded-lg text-sm font-semibold ${
-                  activeTab === "candidates"
-                    ? "bg-slate-900 text-white"
-                    : "bg-white text-slate-700 border border-slate-200"
-                }`}
-              >
-                1. Candidate Review & Grading ({candidates.length})
-              </button>
+        <p className="deck" style={{ maxWidth: "850px", marginTop: "0.4rem" }}>
+          {deckText}
+        </p>
+      </section>
 
-              <button
-                onClick={() => {
-                  setActiveTab("questions");
-                  fetchFormQuestions(questionDomain);
-                }}
-                className={`px-4 py-2 rounded-lg text-sm font-semibold ${
-                  activeTab === "questions"
-                    ? "bg-slate-900 text-white"
-                    : "bg-white text-slate-700 border border-slate-200"
-                }`}
-              >
-                2. Form Questions & Marks
-              </button>
+      {error && (
+        <div style={{ padding: "0.75rem 1rem", border: "2px solid var(--stamp)", backgroundColor: "rgba(139, 30, 30, 0.08)", color: "var(--stamp)" }}>
+          <strong>✦ Notice:</strong> {error}
+        </div>
+      )}
 
-              <button
-                onClick={() => {
-                  setActiveTab("slots");
-                  fetchSlots(slotDomain);
-                }}
-                className={`px-4 py-2 rounded-lg text-sm font-semibold ${
-                  activeTab === "slots"
-                    ? "bg-slate-900 text-white"
-                    : "bg-white text-slate-700 border border-slate-200"
-                }`}
-              >
-                3. Interview Slots (Calendly Style)
-              </button>
+      {/* Stage Stat Tiles Grid */}
+      <section>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
+          <h2 style={{ fontFamily: "var(--font-label)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.15em", color: "var(--ink)" }}>
+            APPLICATIONS BY STAGE
+          </h2>
+          <span style={{ fontFamily: "var(--font-label)", fontSize: "0.78rem", color: "var(--ink-soft)" }}>
+            <Num>{applications.length}</Num> in total
+          </span>
+        </div>
 
-              {adminUser?.role === "ROOT_ADMIN" && (
-                <button
-                  onClick={() => setActiveTab("root")}
-                  className={`px-4 py-2 rounded-lg text-sm font-semibold ${
-                    activeTab === "root"
-                      ? "bg-indigo-600 text-white"
-                      : "bg-white text-indigo-700 border border-indigo-200"
-                  }`}
-                >
-                  4. Whitelist Domain Heads
-                </button>
-              )}
-            </div>
-
-            {/* TAB 1: CANDIDATE REVIEW */}
-            {activeTab === "candidates" && (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                <div className="lg:col-span-5 bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h2 className="font-bold text-base">
-                      Submitted Applications
-                    </h2>
-                    <button
-                      onClick={() => fetchCandidates(filterDomain)}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg"
-                    >
-                      Refresh
-                    </button>
-                  </div>
-
-                  {adminUser?.role === "ROOT_ADMIN" && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-600">Domain:</span>
-                      <select
-                        value={filterDomain}
-                        onChange={(e) => {
-                          setFilterDomain(e.target.value);
-                          fetchCandidates(e.target.value);
-                        }}
-                        className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs"
-                      >
-                        <option value="ALL">ALL DOMAINS</option>
-                        {DOMAINS.map((d) => (
-                          <option key={d} value={d}>
-                            {d}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  <div className="space-y-2 max-h-[550px] overflow-y-auto">
-                    {candidates.length === 0 ? (
-                      <p className="text-xs text-slate-500 py-8 text-center">
-                        No submitted applications found for this domain yet.
-                      </p>
-                    ) : (
-                      candidates.map((app) => (
-                        <div
-                          key={app.id}
-                          onClick={() => handleSelectCandidate(app)}
-                          className={`p-3.5 rounded-lg border cursor-pointer transition ${
-                            selectedApp?.id === app.id
-                              ? "border-blue-600 bg-blue-50/40"
-                              : "border-slate-200 hover:bg-slate-50"
-                          }`}
-                        >
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <p className="font-semibold text-sm">
-                                {app.user?.name || "Candidate"}
-                              </p>
-                              <p className="text-xs text-slate-500">
-                                {app.user?.regNumber} • {app.user?.email}
-                              </p>
-                            </div>
-                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
-                              {app.stage}
-                            </span>
-                          </div>
-                          <div className="mt-2 flex justify-between items-center text-xs text-slate-500">
-                            <span>Domain: {app.domain}</span>
-                            {app.review1Marks !== null &&
-                              app.review1Marks !== undefined && (
-                                <span className="font-semibold text-emerald-700">
-                                  Marks: {app.review1Marks}
-                                </span>
-                              )}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+            gap: "0.75rem",
+          }}
+        >
+          {tilesConfig.map((tile) => (
+            <Link
+              key={tile.stage}
+              href={`/applicants?stage=${tile.stage}`}
+              className="stat-tile-link"
+            >
+              <div>
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <StageStamp stage={tile.stage} size="sm" />
                 </div>
+                <div
+                  style={{
+                    fontFamily: "var(--font-headline)",
+                    fontSize: "2.4rem",
+                    lineHeight: 1,
+                    color: "var(--ink)",
+                    margin: "0.25rem 0",
+                  }}
+                >
+                  <Num>{loading ? "..." : tile.count}</Num>
+                </div>
+              </div>
+              <div
+                style={{
+                  fontFamily: "var(--font-label)",
+                  fontSize: "0.72rem",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  color: "var(--ink-soft)",
+                  marginTop: "0.5rem",
+                  borderTop: "1px dotted var(--ink-soft)",
+                  paddingTop: "0.35rem",
+                }}
+              >
+                {tile.caption}
+              </div>
+            </Link>
+          ))}
+        </div>
+      </section>
 
-                <div className="lg:col-span-7 bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                  <h2 className="font-bold text-base border-b border-slate-200 pb-3 mb-4">
-                    Candidate Form Evaluation
-                  </h2>
+      {/* Two-Column Midsection: Waiting for Review & Today's Schedule */}
+      <section
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+          gap: "1.5rem",
+          marginTop: "0.25rem",
+        }}
+      >
+        {/* Column 1: Waiting for Review */}
+        <div style={{ border: "1px solid var(--ink)", padding: "1.25rem", display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "1px solid var(--ink)", paddingBottom: "0.5rem", marginBottom: "0.75rem" }}>
+            <h3 style={{ fontFamily: "var(--font-headline)", fontSize: "1.35rem", textTransform: "uppercase", letterSpacing: "0.02em" }}>
+              WAITING FOR YOUR REVIEW
+            </h3>
+            <span style={{ fontFamily: "var(--font-label)", fontSize: "0.8rem", color: "var(--stamp)", fontWeight: 700 }}>
+              <Num>{underReviewCount}</Num> waiting
+            </span>
+          </div>
 
-                  {!selectedApp ? (
-                    <p className="text-xs text-slate-500 py-12 text-center">
-                      Select a candidate on the left to grade their responses question-by-question.
-                    </p>
-                  ) : (
-                    <div className="space-y-5">
-                      <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-                        <div>
-                          <span className="text-slate-400 block">Candidate Name</span>
-                          <span className="font-semibold text-slate-800">
-                            {selectedApp.user?.name}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block">Registration Number</span>
-                          <span className="font-semibold text-slate-800">
-                            {selectedApp.user?.regNumber}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block">Phone</span>
-                          <span className="font-semibold text-slate-800">
-                            {selectedApp.user?.phone || "N/A"}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block">Domain</span>
-                          <span className="font-semibold text-indigo-700">
-                            {selectedApp.domain}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block">Current Stage</span>
-                          <span className="font-semibold text-slate-800">
-                            {selectedApp.stage}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block">Submitted On</span>
-                          <span className="font-semibold text-slate-800">
-                            {selectedApp.submittedAt
-                              ? new Date(selectedApp.submittedAt).toLocaleDateString()
-                              : "Submitted"}
-                          </span>
-                        </div>
-                      </div>
+          <p style={{ fontFamily: "var(--font-body)", fontSize: "0.92rem", color: "var(--ink-soft)", marginBottom: "0.75rem" }}>
+            Oldest applications first. Showing the oldest <Num>{Math.min(5, oldestUnreviewed.length)}</Num>.
+          </p>
 
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-center">
-                          <h3 className="text-sm font-bold text-slate-800">
-                            Individual Question Responses & Marks
-                          </h3>
-                          <span className="text-xs font-bold bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg border border-emerald-200">
-                            Total Score: {totalCalculatedMarks} Marks
-                          </span>
-                        </div>
+          {loading ? (
+            <p style={{ fontStyle: "italic", color: "var(--ink-soft)" }}>Loading applications...</p>
+          ) : oldestUnreviewed.length === 0 ? (
+            <div style={{ padding: "1.5rem 0", textAlign: "center", fontStyle: "italic", color: "var(--ink-soft)" }}>
+              ✦ No pending applications waiting for review.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+              {oldestUnreviewed.map((app) => (
+                <div
+                  key={app.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "0.5rem 0.65rem",
+                    border: "1px solid rgba(28, 22, 19, 0.2)",
+                    backgroundColor: "rgba(28, 22, 19, 0.02)",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: "0.92rem" }}>
+                      {app.user.name}{" "}
+                      <span style={{ fontFamily: "var(--font-label)", fontSize: "0.78rem", fontWeight: 600, color: "var(--ink-soft)" }}>
+                        (<Num>{app.user.regNumber}</Num>)
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "0.75rem", color: "var(--ink-soft)", fontFamily: "var(--font-label)", textTransform: "uppercase" }}>
+                      {DOMAIN_LABELS[app.domain]} · Submitted: <Num>{formatDate(app.submittedAt || "", true)}</Num>
+                    </div>
+                  </div>
+                  <Link
+                    href={`/applicants/${app.id}`}
+                    className="ink-btn-secondary"
+                    style={{ fontSize: "0.75rem", padding: "0.3rem 0.65rem", textDecoration: "none" }}
+                  >
+                    Open Review →
+                  </Link>
+                </div>
+              ))}
+            </div>
+          )}
 
-                        {(selectedApp.user?.answers || []).filter(
-                          (ans: any) =>
-                            !ans.question?.domain ||
-                            ans.question.domain === selectedApp.domain
-                        ).length === 0 ? (
-                          <p className="text-xs text-slate-500 italic bg-slate-50 p-3 rounded-lg">
-                            No answers submitted for this domain yet.
-                          </p>
-                        ) : (
-                          (selectedApp.user?.answers || [])
-                            .filter(
-                              (ans: any) =>
-                                !ans.question?.domain ||
-                                ans.question.domain === selectedApp.domain
-                            )
-                            .map((ans: any, idx: number) => {
-                              const maxM = ans.question?.maxMarks || 10;
-                              return (
-                                <div
-                                  key={ans.id || idx}
-                                  className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/60 space-y-2"
-                                >
-                                  <div className="flex justify-between items-start gap-4">
-                                    <p className="text-xs font-semibold text-slate-800">
-                                      Q{idx + 1}. {ans.question?.text || "Question"}
-                                    </p>
-                                    <div className="flex items-center gap-1.5 shrink-0">
-                                      <label className="text-[11px] text-slate-500">
-                                        Marks:
-                                      </label>
-                                      <input
-                                        type="number"
-                                        min={0}
-                                        max={maxM}
-                                        value={questionScores[ans.id] ?? 0}
-                                        onChange={(e) =>
-                                          setQuestionScores({
-                                            ...questionScores,
-                                            [ans.id]: Number(e.target.value),
-                                          })
-                                        }
-                                        className="w-16 border border-slate-300 rounded px-2 py-1 text-xs font-semibold text-center bg-white"
-                                      />
-                                      <span className="text-xs text-slate-500">
-                                        / {maxM}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <p className="text-xs text-slate-700 bg-white p-2.5 rounded border border-slate-200 whitespace-pre-wrap">
-                                    {ans.text}
-                                  </p>
-                                </div>
-                              );
-                            })
+          <div style={{ marginTop: "auto", paddingTop: "1rem", textAlign: "right" }}>
+            <Link
+              href="/applicants?stage=FORM_FILLING"
+              style={{
+                fontFamily: "var(--font-label)",
+                fontSize: "0.8rem",
+                textTransform: "uppercase",
+                letterSpacing: "0.12em",
+                color: "var(--ink)",
+                fontWeight: 700,
+                textDecoration: "underline",
+              }}
+            >
+              View all <Num>{underReviewCount}</Num> →
+            </Link>
+          </div>
+        </div>
+
+        {/* Column 2: Today's Schedule & Quick Links */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+          {/* Today's Interviews */}
+          <div style={{ border: "1px solid var(--ink)", padding: "1.25rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "1px solid var(--ink)", paddingBottom: "0.5rem", marginBottom: "0.75rem" }}>
+              <h3 style={{ fontFamily: "var(--font-headline)", fontSize: "1.35rem", textTransform: "uppercase", letterSpacing: "0.02em" }}>
+                INTERVIEWS TODAY
+              </h3>
+              <span style={{ fontFamily: "var(--font-label)", fontSize: "0.78rem", color: "var(--ink-soft)", fontWeight: 600 }}>
+                <Num>{todayInterviews.length}</Num> Scheduled
+              </span>
+            </div>
+
+            {loading ? (
+              <p style={{ fontStyle: "italic", color: "var(--ink-soft)" }}>Checking interview schedule...</p>
+            ) : todayInterviews.length === 0 ? (
+              <p style={{ fontStyle: "italic", color: "var(--ink-soft)", fontSize: "0.95rem" }}>
+                ✦ No candidate interviews scheduled for today.
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                {todayInterviews.slice(0, 4).map((item, idx) => {
+                  const timeFormatted = formatTime(item.startTime);
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        padding: "0.5rem 0.65rem",
+                        border: "1px solid rgba(28, 22, 19, 0.2)",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <div>
+                        <strong><Num>{timeFormatted}</Num></strong> —{" "}
+                        <span>{item.booking?.application?.user?.name || "Candidate"}</span>
+                        {isRoot && item.slot.domain && (
+                          <span style={{ fontSize: "0.72rem", color: "var(--ink-soft)", marginLeft: "0.4rem", fontFamily: "var(--font-label)" }}>
+                            [{DOMAIN_LABELS[item.slot.domain]}]
+                          </span>
                         )}
                       </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-slate-200">
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-700 mb-1">
-                            Stage Decision
-                          </label>
-                          <select
-                            value={stageDecision}
-                            onChange={(e) => setStageDecision(e.target.value)}
-                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold"
-                          >
-                            {ADMIN_ALLOWED_STAGES.map((st) => (
-                              <option key={st} value={st}>
-                                {st}
-                              </option>
-                            ))}
-                          </select>
-                          <p className="text-[11px] text-slate-400 mt-1">
-                            Candidates automatically move to INTERVIEW when they book a slot.
-                          </p>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-700 mb-1">
-                            Reviewer Comments
-                          </label>
-                          <textarea
-                            rows={2}
-                            value={reviewComments}
-                            onChange={(e) => setReviewComments(e.target.value)}
-                            placeholder="Overall evaluation feedback..."
-                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs"
-                          />
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={handleSaveEvaluation}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm py-2.5 rounded-lg"
-                      >
-                        Save Question Marks & Update Stage
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* TAB 2: DOMAIN FORM QUESTIONS & MARKS BUILDER */}
-            {activeTab === "questions" && (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                <div className="lg:col-span-5 space-y-6">
-                  <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                    <h2 className="font-bold text-base mb-1">
-                      Add Form Question & Assign Marks
-                    </h2>
-                    <p className="text-xs text-slate-500 mb-4">
-                      Each Domain Head can add questions and set maximum marks for their domain's candidate form.
-                    </p>
-
-                    <form onSubmit={handleCreateQuestion} className="space-y-4">
-                      {adminUser?.role === "ROOT_ADMIN" && (
-                        <div>
-                          <label className="block text-xs font-semibold mb-1">
-                            Domain
-                          </label>
-                          <select
-                            value={questionDomain}
-                            onChange={(e) => {
-                              setQuestionDomain(e.target.value);
-                              fetchFormQuestions(e.target.value);
-                            }}
-                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs"
-                          >
-                            {DOMAINS.map((d) => (
-                              <option key={d} value={d}>
-                                {d}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                      {item.slot.meetingLink && (
+                        <a
+                          href={item.slot.meetingLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="stamp-btn"
+                          style={{ fontSize: "0.72rem", padding: "0.25rem 0.55rem", textDecoration: "none" }}
+                        >
+                          Join Call
+                        </a>
                       )}
-
-                      {subsectionsList.length > 0 && (
-                        <div>
-                          <label className="block text-xs font-semibold mb-1">
-                            Subsection (Optional)
-                          </label>
-                          <select
-                            value={selectedSubsectionId}
-                            onChange={(e) =>
-                              setSelectedSubsectionId(e.target.value)
-                            }
-                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs"
-                          >
-                            <option value="">General (No Subsection)</option>
-                            {subsectionsList.map((sub: any) => (
-                              <option key={sub.id} value={sub.id}>
-                                {sub.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-
-                      <div>
-                        <label className="block text-xs font-semibold mb-1">
-                          Question Prompt
-                        </label>
-                        <textarea
-                          rows={3}
-                          required
-                          placeholder="Enter the question candidates will answer..."
-                          value={newQuestionText}
-                          onChange={(e) => setNewQuestionText(e.target.value)}
-                          className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-xs font-semibold mb-1">
-                            Marks for Question
-                          </label>
-                          <input
-                            type="number"
-                            min={1}
-                            required
-                            value={newQuestionMarks}
-                            onChange={(e) =>
-                              setNewQuestionMarks(Number(e.target.value))
-                            }
-                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold mb-1">
-                            Question Order
-                          </label>
-                          <input
-                            type="number"
-                            min={1}
-                            value={newQuestionOrder}
-                            onChange={(e) =>
-                              setNewQuestionOrder(Number(e.target.value))
-                            }
-                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs"
-                          />
-                        </div>
-                      </div>
-
-                      <button
-                        type="submit"
-                        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs py-2.5 rounded-lg"
-                      >
-                        Add Question to {questionDomain}
-                      </button>
-                    </form>
-                  </div>
-
-                  <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                    <h3 className="font-bold text-sm mb-2">
-                      Create Form Subsection (Optional)
-                    </h3>
-                    <form
-                      onSubmit={handleCreateSubsection}
-                      className="flex gap-2"
-                    >
-                      <input
-                        type="text"
-                        placeholder="e.g., Web Dev / AI-ML / Core"
-                        value={newSubsectionName}
-                        onChange={(e) => setNewSubsectionName(e.target.value)}
-                        className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-xs"
-                      />
-                      <button
-                        type="submit"
-                        className="bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-4 py-2 rounded-lg"
-                      >
-                        Add
-                      </button>
-                    </form>
-                  </div>
-                </div>
-
-                <div className="lg:col-span-7 bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                  <div className="flex justify-between items-center mb-4">
-                    <h2 className="font-bold text-base">
-                      {questionDomain} Form Questions ({questionsList.length})
-                    </h2>
-                    <button
-                      onClick={() => fetchFormQuestions(questionDomain)}
-                      className="text-xs text-indigo-600 font-semibold hover:underline"
-                    >
-                      Refresh
-                    </button>
-                  </div>
-
-                  <div className="space-y-2.5">
-                    {questionsList.length === 0 ? (
-                      <p className="text-xs text-slate-500 py-8 text-center">
-                        No questions created for {questionDomain} yet.
-                      </p>
-                    ) : (
-                      questionsList.map((q: any, idx: number) => (
-                        <div
-                          key={q.id || idx}
-                          className="p-3.5 rounded-lg border border-slate-200 flex justify-between items-start gap-4"
-                        >
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[11px] font-bold text-indigo-600">
-                                Q{q.order || idx + 1}
-                              </span>
-                              {q.subsection?.name && (
-                                <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
-                                  {q.subsection.name}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs font-medium text-slate-800 mt-1">
-                              {q.text}
-                            </p>
-                          </div>
-                          <span className="shrink-0 bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold px-2.5 py-1 rounded">
-                            {q.maxMarks ?? 10} Marks
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
-            {/* TAB 3: CALENDLY-STYLE INTERVIEW SLOTS */}
-            {activeTab === "slots" && (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                <div className="lg:col-span-5 bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                  <h2 className="font-bold text-base mb-1">
-                    Create Interview Availability (Calendly Style)
-                  </h2>
-                  <p className="text-xs text-slate-500 mb-4">
-                    Pick a date on the calendar, choose your start and end time window, and set how many minutes each interview slot should last.
-                  </p>
-                  <form onSubmit={handleCreateSlots} className="space-y-4">
-                    {adminUser?.role === "ROOT_ADMIN" && (
-                      <div>
-                        <label className="block text-xs font-semibold mb-1">
-                          Domain
-                        </label>
-                        <select
-                          value={slotDomain}
-                          onChange={(e) => {
-                            setSlotDomain(e.target.value);
-                            fetchSlots(e.target.value);
-                          }}
-                          className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs"
-                        >
-                          {DOMAINS.map((d) => (
-                            <option key={d} value={d}>
-                              {d}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
+            <div style={{ marginTop: "0.75rem", textAlign: "right" }}>
+              <Link
+                href="/interviews"
+                style={{
+                  fontFamily: "var(--font-label)",
+                  fontSize: "0.78rem",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.12em",
+                  color: "var(--ink)",
+                  fontWeight: 700,
+                  textDecoration: "underline",
+                }}
+              >
+                Open Interview Ledger →
+              </Link>
+            </div>
+          </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold mb-1">
-                        1. Choose Calendar Date
-                      </label>
-                      <input
-                        type="date"
-                        required
-                        value={slotDate}
-                        onChange={(e) => setSlotDate(e.target.value)}
-                        className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold mb-1">
-                          2. From Time
-                        </label>
-                        <input
-                          type="time"
-                          required
-                          value={slotStartTime}
-                          onChange={(e) => setSlotStartTime(e.target.value)}
-                          className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold mb-1">
-                          3. To Time
-                        </label>
-                        <input
-                          type="time"
-                          required
-                          value={slotEndTime}
-                          onChange={(e) => setSlotEndTime(e.target.value)}
-                          className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold mb-1">
-                        4. Duration Per Interview (Minutes)
-                      </label>
-                      <input
-                        type="number"
-                        min={5}
-                        max={240}
-                        required
-                        value={slotDuration}
-                        onChange={(e) =>
-                          setSlotDuration(Number(e.target.value))
-                        }
-                        className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold mb-1">
-                        5. Meeting Link (Sent when candidate books slot)
-                      </label>
-                      <input
-                        type="url"
-                        required
-                        placeholder="https://meet.google.com/..."
-                        value={slotMeetingLink}
-                        onChange={(e) => setSlotMeetingLink(e.target.value)}
-                        className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs"
-                      />
-                    </div>
-
-                    <button
-                      type="submit"
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs py-2.5 rounded-lg"
-                    >
-                      Generate Interview Slots
-                    </button>
-                  </form>
-                </div>
-
-                <div className="lg:col-span-7 bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                  <div className="flex justify-between items-center mb-4">
-                    <h2 className="font-bold text-base">
-                      Created Slots & Bookings ({slotsList.length})
-                    </h2>
-                    <button
-                      onClick={() => fetchSlots(slotDomain)}
-                      className="text-xs text-emerald-700 font-semibold hover:underline"
-                    >
-                      Refresh
-                    </button>
-                  </div>
-
-                  <div className="space-y-2.5 max-h-[550px] overflow-y-auto">
-                    {slotsList.length === 0 ? (
-                      <p className="text-xs text-slate-500 py-8 text-center">
-                        No slots created yet. Use the form on the left to add availability.
-                      </p>
-                    ) : (
-                      slotsList.map((s: any) => (
-                        <div
-                          key={s.id}
-                          className="p-3.5 rounded-lg border border-slate-200 flex justify-between items-center gap-4"
-                        >
-                          <div>
-                            <p className="text-xs font-bold text-slate-800">
-                              {new Date(s.startTime).toLocaleDateString()} •{" "}
-                              {new Date(s.startTime).toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}{" "}
-                              –{" "}
-                              {new Date(s.endTime).toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </p>
-                            {s.meetingLink && (
-                              <a
-                                href={s.meetingLink}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-[11px] text-blue-600 hover:underline block"
-                              >
-                                {s.meetingLink}
-                              </a>
-                            )}
-                            {s.bookings?.length > 0 && (
-                              <p className="text-[11px] text-emerald-700 font-semibold mt-1">
-                                Booked by:{" "}
-                                {s.bookings
-                                  .map(
-                                    (b: any) =>
-                                      b.application?.user?.name ||
-                                      b.application?.user?.email
-                                  )
-                                  .join(", ")}
-                              </p>
-                            )}
-                          </div>
-                          <span className="text-xs font-semibold px-2.5 py-1 rounded bg-slate-100 text-slate-700 shrink-0">
-                            Booked: {s.bookedCount} / {s.capacity}
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 4: ROOT ADMIN WHITELIST */}
-            {activeTab === "root" && adminUser?.role === "ROOT_ADMIN" && (
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 max-w-xl">
-                <h2 className="font-bold text-base mb-1">
-                  Assign & Whitelist Domain Heads
-                </h2>
-                <p className="text-xs text-slate-500 mb-4">
-                  Enter one or more comma-separated emails. Once added, those Domain Heads can click "Create First-Time Password" on the login screen.
-                </p>
-                <form onSubmit={handleAssignDomainHeads} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-semibold mb-1">
-                      Select Domain
-                    </label>
-                    <select
-                      value={assignDomain}
-                      onChange={(e) => setAssignDomain(e.target.value)}
-                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs"
-                    >
-                      {DOMAINS.map((d) => (
-                        <option key={d} value={d}>
-                          {d}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold mb-1">
-                      Domain Head Email(s)
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="head1@gmail.com, head2@gmail.com"
-                      value={assignEmails}
-                      onChange={(e) => setAssignEmails(e.target.value)}
-                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-4 py-2.5 rounded-lg"
-                  >
-                    Grant Domain Head Access
-                  </button>
-                </form>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+          {/* Quick Links Card */}
+          <div style={{ border: "1px solid var(--ink)", padding: "1.25rem", backgroundColor: "rgba(28, 22, 19, 0.02)" }}>
+            <h3 style={{ fontFamily: "var(--font-label)", fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.15em", marginBottom: "0.75rem", borderBottom: "1px solid var(--ink)", paddingBottom: "0.35rem" }}>
+              QUICK LINKS
+            </h3>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+              <Link href="/applicants" className="ink-btn-secondary" style={{ textAlign: "center", textDecoration: "none", fontSize: "0.78rem" }}>
+                Applicant Listings
+              </Link>
+              <Link href="/slots" className="ink-btn-secondary" style={{ textAlign: "center", textDecoration: "none", fontSize: "0.78rem" }}>
+                Slot Planner
+              </Link>
+              <Link href="/form-builder" className="ink-btn-secondary" style={{ textAlign: "center", textDecoration: "none", fontSize: "0.78rem" }}>
+                Question Desk
+              </Link>
+              {isRoot && (
+                <Link href="/team" className="ink-btn-secondary" style={{ textAlign: "center", textDecoration: "none", fontSize: "0.78rem" }}>
+                  The Masthead (Team)
+                </Link>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

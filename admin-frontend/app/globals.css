@@ -1,26 +1,366 @@
-@import "tailwindcss";
+@import "@fontsource/pirata-one";
+@import "@fontsource/anton";
+@import "@fontsource/im-fell-english";
+@import "@fontsource/old-standard-tt";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --paper: #E8DCC0;
+  --paper-dark: #D9CAA6;
+  --ink: #1C1613;
+  --ink-soft: #4A3F36;
+  --stamp: #8B1E1E;
+
+  --font-masthead: "Pirata One", serif;
+  --font-headline: "Anton", sans-serif;
+  --font-body: "IM Fell English", Georgia, serif;
+  --font-label: "Old Standard TT", Georgia, serif;
+
+  --grain-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+html, body {
+  background-color: #14100E;
+  color: var(--ink);
+  font-family: var(--font-body);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Numbers & Numerals - Lining & Tabular */
+.num {
+  font-family: var(--font-label), Georgia, serif;
+  font-variant-numeric: lining-nums tabular-nums;
+  font-feature-settings: "lnum", "tnum";
+  letter-spacing: 0.02em;
+}
+
+/* Inside text already set in Anton, Pirata One, or Old Standard TT: inherit surrounding font */
+.headline,
+.headline .num,
+.masthead .num,
+.kicker .num,
+.stat-tile-count .num,
+.stat-tile-link .num,
+.chip-btn .num,
+h1 .num,
+h2 .num,
+h3 .num,
+h4 .num,
+[style*="var(--font-headline)"] .num,
+[style*="var(--font-masthead)"] .num,
+[style*="var(--font-label)"] .num,
+[style*="Anton"] .num,
+[style*="Pirata"] .num {
+  font-family: inherit;
+}
+
+/* Stat Tiles */
+.stat-tile-link {
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border: 1px solid var(--ink);
+  padding: 1rem;
+  background-color: transparent;
+  transition: all 0.15s ease-in-out;
+  cursor: pointer;
+  outline: none;
+}
+
+.stat-tile-link:hover {
+  background-color: rgba(28, 22, 19, 0.04);
+  border-color: var(--ink);
+  box-shadow: 2px 3px 0px rgba(28, 22, 19, 0.25);
+  transform: translateY(-1px);
+}
+
+.stat-tile-link:focus-visible {
+  outline: 2px solid var(--stamp);
+  outline-offset: 2px;
+  background-color: rgba(28, 22, 19, 0.04);
+}
+.paper {
+  background-color: var(--paper);
+  color: var(--ink);
+  position: relative;
+  box-shadow: inset 0 0 35px rgba(217, 202, 166, 0.4), inset 0 0 75px rgba(28, 22, 19, 0.08);
+}
+
+.paper::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--grain-bg);
+  opacity: 0.12;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Rules & Dividers */
+.rule-double {
+  border: none;
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+  height: 4px;
+  width: 100%;
+  margin: 0.5rem 0;
+}
+
+.rule-single {
+  border: none;
+  border-top: 1px solid var(--ink);
+  height: 1px;
+  width: 100%;
+  margin: 0.5rem 0;
+}
+
+.star-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+  color: var(--ink);
+  font-size: 0.85rem;
+  user-select: none;
+}
+
+.star-divider::before,
+.star-divider::after {
+  content: "";
+  height: 1px;
+  background-color: var(--ink);
+  flex: 1;
+}
+
+/* Typography styles */
+.kicker {
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--stamp);
+  font-weight: 700;
+  display: block;
+}
+
+.headline {
+  font-family: var(--font-headline);
+  color: var(--ink);
+  line-height: 1.05;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+}
+
+.deck {
+  font-family: var(--font-body);
+  font-style: italic;
+  font-size: 1.15rem;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+
+.dropcap::first-letter {
+  float: left;
+  font-family: var(--font-headline);
+  font-size: 3.4rem;
+  line-height: 0.8;
+  padding-top: 4px;
+  padding-right: 8px;
+  padding-bottom: 0;
+  color: var(--ink);
+}
+
+/* Buttons */
+.ink-btn {
+  background-color: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--ink);
+  font-family: var(--font-label);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+  padding: 0.6rem 1.25rem;
+  cursor: pointer;
+  box-shadow: 2px 2px 0px rgba(0,0,0,0.25);
+  transition: all 0.1s ease;
+}
+
+.ink-btn:hover {
+  background-color: #302621;
+}
+
+.ink-btn:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px rgba(0,0,0,0.25);
+}
+
+.stamp-btn {
+  background-color: var(--stamp);
+  color: var(--paper);
+  border: 1px solid var(--stamp);
+  font-family: var(--font-label);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  padding: 0.6rem 1.25rem;
+  cursor: pointer;
+  box-shadow: 2px 2px 0px rgba(0,0,0,0.25);
+  transition: all 0.1s ease;
+}
+
+.stamp-btn:hover {
+  background-color: #6d1717;
+}
+
+.stamp-btn:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px rgba(0,0,0,0.25);
+}
+
+.ink-btn-secondary {
+  background-color: transparent;
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  font-family: var(--font-label);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+  padding: 0.55rem 1.15rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ink-btn-secondary:hover {
+  background-color: rgba(28, 22, 19, 0.08);
+}
+
+/* Tables */
+.classified-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+  font-size: 0.92rem;
+}
+
+.classified-table th {
+  font-family: var(--font-label);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.78rem;
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  border-top: 2px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
+  color: var(--ink);
+}
+
+.classified-table td {
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid rgba(28, 22, 19, 0.2);
+  color: var(--ink);
+  vertical-align: middle;
+}
+
+.classified-table tr:hover td {
+  background-color: rgba(28, 22, 19, 0.03);
+}
+
+/* Form Inputs */
+.newspaper-input,
+.newspaper-textarea,
+.newspaper-select {
+  background-color: transparent;
+  border: 1px solid var(--ink);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  padding: 0.35rem 0.6rem;
+  outline: none;
+  width: 100%;
+  border-radius: 0;
+  box-sizing: border-box;
+}
+
+.newspaper-input {
+  height: 36px;
+}
+
+.newspaper-input:focus,
+.newspaper-textarea:focus,
+.newspaper-select:focus {
+  border-width: 2px;
+  background-color: rgba(28, 22, 19, 0.02);
+}
+
+.demo-buttons-row {
+  display: flex;
+  flex-direction: row;
+  gap: 0.5rem;
+}
+
+@media (max-width: 700px) {
+  .demo-buttons-row {
+    flex-direction: column;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Animations */
+@keyframes stampSlam {
+  0% {
+    opacity: 0;
+    transform: scale(2.2) rotate(-15deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(0.95) rotate(-7deg);
+  }
+  80% {
+    transform: scale(1.02) rotate(-8deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(-8deg);
+  }
+}
+
+.stamp-slam {
+  animation: stampSlam 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes paperSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.slide-up {
+  animation: paperSlideUp 0.3s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
