@@ -150,56 +150,141 @@ export const updateApplicantReview = async (req: CustomRequest, res: Response) =
   }
 };
 
-// 3B. Batch Release Shortlist
+// Domain heads always work on their own domain; root admins must pick one
+const resolveDomain = (admin: any, domain: unknown): DomainType | undefined =>
+  admin?.role === 'DOMAIN_HEAD' && admin?.domain
+    ? (admin.domain as DomainType)
+    : typeof domain === 'string' && (Object.values(DomainType) as string[]).includes(domain)
+    ? (domain as DomainType)
+    : undefined;
+
+// Shortlisted = waiting to book a slot; Rejected = turned down at Review 1 (not after an interview,
+// because the rejection email says they weren't moved to the interview stage)
+const RESULT_GROUPS = {
+  SHORTLISTED: { stages: ['SHORTLISTED', 'SLOT_CHOOSING'] as Stage[], shortlisted: true },
+  REJECTED: { stages: ['REJECTED'] as Stage[], shortlisted: false },
+} as const;
+type ResultGroup = keyof typeof RESULT_GROUPS;
+
+async function findGroup(domain: DomainType, group: ResultGroup) {
+  const apps = await prisma.application.findMany({
+    where: { domain, submittedAt: { not: null }, stage: { in: RESULT_GROUPS[group].stages } },
+    include: { user: { select: { name: true, email: true, regNumber: true } }, emails: true },
+    orderBy: { user: { regNumber: 'asc' } },
+  });
+  return group === 'REJECTED' ? apps.filter((a) => a.review1Passed !== true) : apps;
+}
+
+// Latest email status for one group's email type: SENT once any attempt succeeded
+function emailStatus(emails: { type: string; status: string; sentAt: Date | null; error: string | null; createdAt: Date }[], type: ResultGroup) {
+  const mine = emails.filter((e) => e.type === type).sort((a, b) => +b.createdAt - +a.createdAt);
+  const sent = mine.find((e) => e.status === 'SENT');
+  if (sent) return { status: 'SENT', sentAt: sent.sentAt, error: null };
+  if (mine[0]) return { status: 'FAILED', sentAt: null, error: mine[0].error };
+  return { status: 'NOT_SENT', sentAt: null, error: null };
+}
+
+// 3B. Release Review 1 results: moves stages only. Emails are sent separately from the result lists.
 export const releaseShortlistBatch = async (req: CustomRequest, res: Response) => {
   try {
-    const admin = req.user as any;
-    const { domain } = req.body;
-
-    const effectiveDomain = admin?.role === 'DOMAIN_HEAD' && admin?.domain ? (admin.domain as DomainType) : domain && domain !== 'ALL' ? (domain as DomainType) : undefined;
+    const effectiveDomain = resolveDomain(req.user, req.body?.domain);
     if (!effectiveDomain) return res.status(400).json({ success: false, message: 'Please select a specific domain.' });
 
     const apps = await prisma.application.findMany({
-      where: { domain: effectiveDomain, submittedAt: { not: null } },
-      include: { user: { select: safeUserSelect }, emails: true },
+      where: { domain: effectiveDomain, submittedAt: { not: null }, stage: 'FORM_FILLING' },
     });
+    // only candidates still at the form stage; anyone already moved on keeps their stage
+    const toShortlist = apps.filter((a) => a.review1Passed === true);
+    const toReject = apps.filter((a) => a.review1Passed !== true && a.review1Marks !== null);
 
-    const shortlistedApps = apps.filter((a) => a.review1Passed === true && a.stage !== 'INTERVIEW' && a.stage !== 'SELECTED');
-    const rejectedApps = apps.filter((a) => a.review1Passed === false && a.review1Marks !== null && a.stage !== 'INTERVIEW' && a.stage !== 'SELECTED');
+    if (toShortlist.length) {
+      await prisma.application.updateMany({ where: { id: { in: toShortlist.map((a) => a.id) } }, data: { stage: 'SLOT_CHOOSING' } });
+    }
+    if (toReject.length) {
+      await prisma.application.updateMany({ where: { id: { in: toReject.map((a) => a.id) } }, data: { stage: 'REJECTED' } });
+    }
 
-    let shortlistEmailsSent = 0, rejectionEmailsSent = 0, emailFailures = 0;
+    return res.status(200).json({
+      success: true,
+      shortlisted: toShortlist.length,
+      rejected: toReject.length,
+      message: `Results released: ${toShortlist.length} shortlisted, ${toReject.length} rejected. No emails were sent yet — send them from the Results & Emails tab.`,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
 
-    for (const app of shortlistedApps) {
-      if (app.stage !== 'SLOT_CHOOSING') await prisma.application.update({ where: { id: app.id }, data: { stage: 'SLOT_CHOOSING' } });
-      const alreadySent = app.emails?.some((e) => e.type === 'SHORTLISTED' && e.status === 'SENT');
-      if (!alreadySent && app.user?.email) {
-        try {
-          await sendShortlistEmail({ name: app.user.name || 'Candidate', email: app.user.email, shortlisted: true });
-          await prisma.emailLog.create({ data: { applicationId: app.id, type: 'SHORTLISTED', status: 'SENT', attempts: 1, sentAt: new Date() } });
-          shortlistEmailsSent++; await sleep(600);
-        } catch (err: any) {
-          await prisma.emailLog.create({ data: { applicationId: app.id, type: 'SHORTLISTED', status: 'FAILED', attempts: 1, error: err.message } });
-          emailFailures++;
-        }
+// 3C. The two result lists (Shortlisted, Rejected) with each candidate's email status
+export const getResultLists = async (req: CustomRequest, res: Response) => {
+  try {
+    const effectiveDomain = resolveDomain(req.user, req.query.domain);
+    if (!effectiveDomain) return res.status(400).json({ success: false, message: 'Please select a specific domain.' });
+
+    const toRow = (group: ResultGroup) => (a: Awaited<ReturnType<typeof findGroup>>[number]) => {
+      const mail = emailStatus(a.emails, group);
+      return {
+        applicationId: a.id,
+        name: a.user?.name,
+        email: a.user?.email,
+        regNumber: a.user?.regNumber,
+        stage: a.stage,
+        review1Marks: a.review1Marks,
+        emailStatus: mail.status,
+        emailSentAt: mail.sentAt,
+        emailError: mail.error,
+      };
+    };
+    const [shortlisted, rejected] = await Promise.all([findGroup(effectiveDomain, 'SHORTLISTED'), findGroup(effectiveDomain, 'REJECTED')]);
+    return res.status(200).json({
+      success: true,
+      domain: effectiveDomain,
+      data: { shortlisted: shortlisted.map(toRow('SHORTLISTED')), rejected: rejected.map(toRow('REJECTED')) },
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// 3D. Send the shortlist or rejection email to everyone in that list who hasn't received it yet
+// body: { domain, group: "SHORTLISTED" | "REJECTED" }. Safe to press again: already-sent candidates are skipped,
+// failed ones are retried.
+export const sendResultEmails = async (req: CustomRequest, res: Response) => {
+  try {
+    const effectiveDomain = resolveDomain(req.user, req.body?.domain);
+    if (!effectiveDomain) return res.status(400).json({ success: false, message: 'Please select a specific domain.' });
+    const group = req.body?.group as ResultGroup;
+    if (group !== 'SHORTLISTED' && group !== 'REJECTED') {
+      return res.status(400).json({ success: false, message: 'group must be SHORTLISTED or REJECTED.' });
+    }
+
+    const apps = await findGroup(effectiveDomain, group);
+    const pending = apps.filter((a) => emailStatus(a.emails, group).status !== 'SENT' && a.user?.email);
+
+    let sent = 0, failed = 0;
+    for (const app of pending) {
+      const attempts = app.emails.filter((e) => e.type === group).length + 1;
+      try {
+        await sendShortlistEmail({ name: app.user.name || 'Candidate', email: app.user.email, shortlisted: RESULT_GROUPS[group].shortlisted });
+        await prisma.emailLog.create({ data: { applicationId: app.id, type: group, status: 'SENT', attempts, sentAt: new Date() } });
+        sent++;
+        await sleep(600); // stay under Gmail's sending rate
+      } catch (err: any) {
+        await prisma.emailLog.create({ data: { applicationId: app.id, type: group, status: 'FAILED', attempts, error: String(err?.message ?? err).slice(0, 500) } });
+        failed++;
       }
     }
 
-    for (const app of rejectedApps) {
-      if (app.stage !== 'REJECTED') await prisma.application.update({ where: { id: app.id }, data: { stage: 'REJECTED' } });
-      const alreadySent = app.emails?.some((e) => e.type === 'REJECTED' && e.status === 'SENT');
-      if (!alreadySent && app.user?.email) {
-        try {
-          await sendShortlistEmail({ name: app.user.name || 'Candidate', email: app.user.email, shortlisted: false });
-          await prisma.emailLog.create({ data: { applicationId: app.id, type: 'REJECTED', status: 'SENT', attempts: 1, sentAt: new Date() } });
-          rejectionEmailsSent++; await sleep(600);
-        } catch (err: any) {
-          await prisma.emailLog.create({ data: { applicationId: app.id, type: 'REJECTED', status: 'FAILED', attempts: 1, error: err.message } });
-          emailFailures++;
-        }
-      }
-    }
-
-    return res.status(200).json({ success: true, message: `Batch complete! ${shortlistedApps.length} invited, ${rejectedApps.length} rejected.` });
+    const label = group === 'SHORTLISTED' ? 'shortlist' : 'rejection';
+    return res.status(200).json({
+      success: true,
+      sent,
+      failed,
+      alreadySent: apps.length - pending.length,
+      message: pending.length === 0
+        ? `Everyone in this list already has the ${label} email.`
+        : `${sent} ${label} email(s) sent${failed ? `, ${failed} failed (press again to retry)` : ''}.`,
+    });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }
