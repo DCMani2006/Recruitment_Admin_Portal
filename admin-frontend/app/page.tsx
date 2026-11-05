@@ -31,6 +31,7 @@ export default function AdminPortal() {
 
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [authSetupCode, setAuthSetupCode] = useState(""); // first-time setup only, from the root admin
   const [statusMsg, setStatusMsg] = useState<{
     type: "success" | "error";
     text: string;
@@ -129,6 +130,10 @@ export default function AdminPortal() {
       notify("error", "Please enter both email and password.");
       return;
     }
+    if (endpoint === "/setup" && !authSetupCode.trim()) {
+      notify("error", "Enter the setup code the root admin gave you.");
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST",
@@ -136,6 +141,7 @@ export default function AdminPortal() {
         body: JSON.stringify({
           email: authEmail.trim().toLowerCase(),
           password: authPassword,
+          ...(endpoint === "/setup" ? { setupCode: authSetupCode.trim() } : {}),
         }),
       });
       const data = await res.json();
@@ -829,6 +835,14 @@ export default function AdminPortal() {
                 value={authPassword}
                 onChange={(e) => setAuthPassword(e.target.value)}
                 className="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm"
+              />
+              <input
+                type="text"
+                placeholder="Setup code (first time only, from the root admin)"
+                value={authSetupCode}
+                onChange={(e) => setAuthSetupCode(e.target.value)}
+                autoComplete="off"
+                className="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm font-mono uppercase"
               />
             </div>
 
@@ -2196,6 +2210,12 @@ export default function AdminPortal() {
                             Role: {adm.role}{" "}
                             {adm.domain ? `• Domain: ${adm.domain}` : ""}
                           </p>
+                          {!adm.hasPassword && adm.setupCode && (
+                            <p className="text-slate-600 mt-1">
+                              Setup code (send privately):{" "}
+                              <span className="font-mono font-semibold tracking-wider">{adm.setupCode}</span>
+                            </p>
+                          )}
                         </div>
                         <span
                           className={`px-2.5 py-1 rounded font-semibold ${

@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { PrismaClient, DomainType, Role, Stage } from '@prisma/client';
 import { changeStage } from '../utils/adminRules';
-import { CustomRequest } from '../middleware/authMiddleware';
+import { CustomRequest, getJwtSecret, setupCodeFor, setupCodeMatches } from '../middleware/authMiddleware';
 import { sendShortlistEmail } from '../emailer';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
@@ -24,6 +24,16 @@ const safeUserSelect = {
     include: { question: true },
   },
 };
+
+const isDomain = (d: unknown): d is DomainType =>
+  typeof d === 'string' && (Object.values(DomainType) as string[]).includes(d);
+
+// The domain an admin may act on: a domain head always gets their own (whatever they asked for);
+// a root admin gets the one they asked for, if it's a real domain.
+const scopedDomain = (admin: any, requested: unknown): DomainType | undefined =>
+  admin?.role === 'ROOT_ADMIN' ? (isDomain(requested) ? requested : undefined) : admin?.domain ?? undefined;
+
+const canManageDomain = (admin: any, domain: DomainType) => admin?.role === 'ROOT_ADMIN' || admin?.domain === domain;
 
 // 1. Fetch all submitted applicants
 export const getAllApplicants = async (req: CustomRequest, res: Response) => {
@@ -64,10 +74,11 @@ export const getAllApplicants = async (req: CustomRequest, res: Response) => {
   }
 };
 
-// 2. Fetch a single applicant's full details
-export const getApplicantById = async (req: Request, res: Response) => {
+// 2. Fetch a single applicant's full details (a domain head only sees their domain's application and answers)
+export const getApplicantById = async (req: CustomRequest, res: Response) => {
   try {
     const { id } = req.params;
+    const admin = req.user as any;
 
     const applicant = await prisma.user.findUnique({
       where: { id: String(id) },
@@ -78,6 +89,15 @@ export const getApplicantById = async (req: Request, res: Response) => {
     });
 
     if (!applicant) return res.status(404).json({ success: false, message: 'Applicant not found' });
+
+    if (admin?.role !== 'ROOT_ADMIN') {
+      const applications = applicant.applications.filter((a) => a.domain === admin?.domain);
+      if (applications.length === 0) return res.status(404).json({ success: false, message: 'Applicant not found' });
+      return res.status(200).json({
+        success: true,
+        data: { ...applicant, applications, answers: applicant.answers.filter((a) => a.question?.domain === admin?.domain) },
+      });
+    }
 
     return res.status(200).json({ success: true, data: applicant });
   } catch (error) {
@@ -105,14 +125,24 @@ export const updateApplicantReview = async (req: CustomRequest, res: Response) =
       return res.status(403).json({ success: false, message: 'Access Denied: You can only modify candidates in your own domain.' });
     }
 
+    // Every stage change goes through the rules in adminRules.ts. A move they don't allow is
+    // reported back (409) instead of being saved anyway, so both backends see consistent stages.
+    // It runs first so a refused change saves nothing else either.
+    if (stage && stage !== currentApp.stage) {
+      if (!(Object.values(Stage) as string[]).includes(stage)) {
+        return res.status(400).json({ success: false, message: `Unknown stage: ${stage}` });
+      }
+      await changeStage(String(applicationId), stage as Stage, admin);
+    }
+
     if (Array.isArray(answerScores) && answerScores.length > 0) {
       await Promise.all(
         answerScores.map(async (item: { answerId: string; marks: number }) => {
           const answerRecord = await prisma.answer.findUnique({ where: { id: String(item.answerId) }, include: { question: true } });
-          
-          // Prevent marks from exceeding maxMarks at the API level
-          if (answerRecord && answerRecord.question) {
-            const finalMarks = Math.min(Number(item.marks) || 0, answerRecord.question.maxMarks);
+
+          // Only this candidate's answers to this domain's questions; marks capped at maxMarks
+          if (answerRecord && answerRecord.userId === currentApp.userId && answerRecord.question?.domain === currentApp.domain) {
+            const finalMarks = Math.min(Math.max(Number(item.marks) || 0, 0), answerRecord.question.maxMarks);
             return prisma.answer.update({
               where: { id: String(item.answerId) },
               data: { marks: finalMarks },
@@ -120,15 +150,6 @@ export const updateApplicantReview = async (req: CustomRequest, res: Response) =
           }
         })
       );
-    }
-
-    if (stage && stage !== currentApp.stage) {
-      if (currentApp.booking && (stage === 'SELECTED' || stage === 'REJECTED')) {
-        await prisma.application.update({ where: { id: String(applicationId) }, data: { stage: stage as Stage } });
-      } else {
-        try { await changeStage(String(applicationId), stage as Stage, admin); } 
-        catch { await prisma.application.update({ where: { id: String(applicationId) }, data: { stage: stage as Stage } }); }
-      }
     }
 
     const updatedApplication = await prisma.application.update({
@@ -146,7 +167,8 @@ export const updateApplicantReview = async (req: CustomRequest, res: Response) =
 
     return res.status(200).json({ success: true, data: updatedApplication });
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message || 'Server error' });
+    // rule errors from changeStage carry their own status (403 wrong domain, 409 move not allowed)
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Server error', code: error.code });
   }
 };
 
@@ -211,9 +233,9 @@ export const createInterviewSlots = async (req: CustomRequest, res: Response) =>
     const admin = req.user as any;
     const { interviewerId, domain, meetingLink, startTime, endTime, durationMinutes, capacity } = req.body;
 
-    const effectiveInterviewerId = interviewerId || admin?.id;
-    // Prevent Domain Heads from creating slots in other domains via API
-    const effectiveDomain = admin?.role === 'ROOT_ADMIN' ? (domain || admin.domain) : admin?.domain;
+    // Domain heads create slots for themselves in their own domain; root admins may choose both
+    const effectiveInterviewerId = admin?.role === 'ROOT_ADMIN' ? interviewerId || admin?.id : admin?.id;
+    const effectiveDomain = scopedDomain(admin, domain);
 
     if (!effectiveInterviewerId || !effectiveDomain) return res.status(400).json({ success: false, message: 'Missing interviewer or domain.' });
 
@@ -255,11 +277,14 @@ export const getMySchedule = async (req: CustomRequest, res: Response) => {
   try {
     const { adminId } = req.params;
     const { all, domain } = req.query;
+    const admin = req.user as any;
+    // a domain head only sees schedules in their own domain (they include candidates' contact details)
+    const effectiveDomain = admin?.role === 'ROOT_ADMIN' ? (isDomain(domain) ? domain : undefined) : admin?.domain;
 
     const mySchedule = await prisma.slot.findMany({
       where: {
         ...(adminId && adminId !== 'ALL' ? { interviewerId: String(adminId) } : {}),
-        ...(domain && domain !== 'ALL' ? { domain: String(domain) as DomainType } : {}),
+        ...(effectiveDomain ? { domain: effectiveDomain } : {}),
         ...(all === 'true' ? {} : { bookedCount: { gt: 0 } }),
       },
       include: { bookings: { include: { application: { include: { user: { select: safeUserSelect } } } } } },
@@ -298,7 +323,16 @@ export const deleteInterviewSlot = async (req: CustomRequest, res: Response) => 
 export const getDomainHeads = async (req: Request, res: Response) => {
   try {
     const admins = await prisma.admin.findMany({ orderBy: { email: 'asc' } });
-    const formatted = admins.map((a) => ({ id: a.id, email: a.email, name: a.name, role: a.role, domain: a.domain, hasPassword: Boolean(a.password) }));
+    // setupCode is only shown until that admin has set their password (root admins only see this list)
+    const formatted = admins.map((a) => ({
+      id: a.id,
+      email: a.email,
+      name: a.name,
+      role: a.role,
+      domain: a.domain,
+      hasPassword: Boolean(a.password),
+      setupCode: a.password ? null : setupCodeFor(a.email),
+    }));
     return res.status(200).json({ success: true, data: formatted });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to fetch' });
@@ -313,6 +347,7 @@ export const assignDomainHead = async (req: Request, res: Response) => {
     const normalizedEmails = rawList.map((e: string) => String(e).trim().toLowerCase()).filter(Boolean);
 
     if (normalizedEmails.length === 0) return res.status(400).json({ success: false, message: 'Provide a valid email.' });
+    if (!isDomain(domain)) return res.status(400).json({ success: false, message: 'Choose a valid domain.' });
 
     const allAdmins = await prisma.admin.findMany();
     let createdCount = 0, updatedCount = 0;
@@ -339,7 +374,8 @@ export const getDomainForm = async (req: CustomRequest, res: Response) => {
     const admin = req.user as any;
     const queryDomain = req.query.domain as string | undefined;
 
-    const effectiveDomain = queryDomain && queryDomain !== 'ALL' ? (queryDomain as DomainType) : admin?.domain ? (admin.domain as DomainType) : undefined;
+    // root admins: the requested domain, or all if none; domain heads: their own
+    const effectiveDomain = scopedDomain(admin, queryDomain);
 
     const [subsections, questions] = await Promise.all([
       prisma.subsection.findMany({ where: effectiveDomain ? { domain: effectiveDomain } : undefined, orderBy: { order: 'asc' } }),
@@ -357,7 +393,7 @@ export const createSubsection = async (req: CustomRequest, res: Response) => {
   try {
     const admin = req.user as any;
     const { name, domain, order } = req.body;
-    const effectiveDomain = (domain || admin?.domain) as DomainType;
+    const effectiveDomain = scopedDomain(admin, domain);
 
     if (!name || !effectiveDomain) return res.status(400).json({ success: false, message: 'Name and domain required.' });
 
@@ -373,7 +409,7 @@ export const createQuestion = async (req: CustomRequest, res: Response) => {
   try {
     const admin = req.user as any;
     const { text, domain, subsectionId, required, order, maxLength, maxMarks } = req.body;
-    const effectiveDomain = (domain || admin?.domain) as DomainType;
+    const effectiveDomain = scopedDomain(admin, domain);
 
     if (!text || !effectiveDomain) return res.status(400).json({ success: false, message: 'Text and domain required.' });
 
@@ -401,6 +437,13 @@ export const updateQuestion = async (req: CustomRequest, res: Response) => {
 
     const existing = await prisma.question.findUnique({ where: { id: String(id) } });
     if (!existing) return res.status(404).json({ success: false, message: 'Not found.' });
+    if (!canManageDomain(req.user, existing.domain)) {
+      return res.status(403).json({ success: false, message: 'You can only edit questions in your own domain.' });
+    }
+    if (subsectionId) {
+      const subsection = await prisma.subsection.findUnique({ where: { id: String(subsectionId) } });
+      if (!subsection || subsection.domain !== existing.domain) return res.status(400).json({ success: false, message: 'Invalid subsection.' });
+    }
 
     const updated = await prisma.question.update({
       where: { id: String(id) },
@@ -421,24 +464,38 @@ export const updateQuestion = async (req: CustomRequest, res: Response) => {
 // 9C. Delete a Question
 export const deleteQuestion = async (req: CustomRequest, res: Response) => {
   try {
-    await prisma.question.delete({ where: { id: String(req.params.id) } });
+    const existing = await prisma.question.findUnique({ where: { id: String(req.params.id) } });
+    if (!existing) return res.status(404).json({ success: false, message: 'Not found.' });
+    if (!canManageDomain(req.user, existing.domain)) {
+      return res.status(403).json({ success: false, message: 'You can only delete questions in your own domain.' });
+    }
+    // note: deleting a question also deletes every student's answer to it
+    await prisma.question.delete({ where: { id: existing.id } });
     return res.status(200).json({ success: true, message: 'Deleted.' });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 };
 
-// 10. Setup Admin Account
+// 10. Setup Admin Account (first time only). Needs the setup code the root admin sees in
+// "Whitelist Domain Heads"; the first root admin's code comes from scripts/create-root-admin.ts.
 export const setupAdminAccount = async (req: Request, res: Response) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, setupCode } = req.body;
     if (!email || !password) return res.status(400).json({ success: false, message: 'Email and password required.' });
+    if (String(password).length < 8) return res.status(400).json({ success: false, message: 'Use at least 8 characters for the password.' });
+
+    const secret = getJwtSecret();
+    if (!secret) return res.status(500).json({ success: false, message: 'JWT secret is not configured' });
 
     const normalizedEmail = String(email).trim().toLowerCase();
     const allMatching = await prisma.admin.findMany();
     const admin = allMatching.find((a) => a.email.trim().toLowerCase() === normalizedEmail);
 
-    if (!admin) return res.status(403).json({ success: false, message: 'Access Denied: Not whitelisted.' });
+    // same reply for an unknown email and a wrong code, so the setup form can't be used to find admin emails
+    if (!admin || !setupCodeMatches(normalizedEmail, setupCode)) {
+      return res.status(403).json({ success: false, message: 'Email or setup code is wrong. Ask the root admin for your setup code.' });
+    }
     if (admin.password) return res.status(400).json({ success: false, message: 'Password already set. Please login.' });
 
     const hashedPassword = await bcrypt.hash(String(password), 10);
@@ -449,11 +506,8 @@ export const setupAdminAccount = async (req: Request, res: Response) => {
       data: { password: hashedPassword, ...(name ? { name: String(name) } : {}) },
     });
 
-    // Maintained fallback_secret as requested by you for critical uptime stability
-    const secret = process.env.JWT_SECRET || process.env.ADMIN_JWT_SECRET || 'fallback_secret';
-
     const token = jwt.sign(
-      { id: updatedAdmin.id, email: updatedAdmin.email, role: updatedAdmin.role, domain: updatedAdmin.domain }, 
+      { id: updatedAdmin.id, email: updatedAdmin.email, role: updatedAdmin.role, domain: updatedAdmin.domain },
       secret, 
       { expiresIn: '12h' }
     );
@@ -478,17 +532,21 @@ export const loginAdmin = async (req: Request, res: Response) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ success: false, message: 'Email and password required.' });
 
+    const secret = getJwtSecret();
+    if (!secret) return res.status(500).json({ success: false, message: 'JWT secret is not configured' });
+
     const normalizedEmail = String(email).trim().toLowerCase();
     const allMatching = await prisma.admin.findMany();
     const admin = allMatching.find((a) => a.email.trim().toLowerCase() === normalizedEmail);
 
-    if (!admin) return res.status(401).json({ success: false, message: 'Not registered.' });
-    if (!admin.password) return res.status(400).json({ success: false, message: 'Click "Create First-Time Password" to set up.' });
-
-    const isMatch = await bcrypt.compare(String(password), admin.password);
-    if (!isMatch) return res.status(401).json({ success: false, message: 'Incorrect password.' });
-
-    const secret = process.env.JWT_SECRET || process.env.ADMIN_JWT_SECRET || 'fallback_secret';
+    // one message for an unknown email and a wrong password, so nobody can check which emails are admins
+    const isMatch = admin?.password ? await bcrypt.compare(String(password), admin.password) : false;
+    if (!admin || !isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password. First time here? Use "Create First-Time Password" with your setup code.',
+      });
+    }
 
     const token = jwt.sign(
       { id: admin.id, email: admin.email, role: admin.role, domain: admin.domain }, 
