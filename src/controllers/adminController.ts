@@ -3,6 +3,7 @@ import { PrismaClient, DomainType, Role, Stage } from '@prisma/client';
 import { changeStage } from '../utils/adminRules';
 import { CustomRequest, getJwtSecret, setupCodeFor, setupCodeMatches } from '../middleware/authMiddleware';
 import { sendShortlistEmail } from '../emailer';
+import { sendFinalResultEmail } from '../utils/finalResultEmail';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
@@ -172,25 +173,59 @@ export const updateApplicantReview = async (req: CustomRequest, res: Response) =
   }
 };
 
-// Shortlisted = waiting to book a slot; Rejected = turned down at Review 1 (not after an interview,
-// because the rejection email says they weren't moved to the interview stage)
+// A candidate counts as interviewed once they have Review 2 marks or their interview time has passed.
+// (A booking kept after rejection means the interview happened; see changeStage.)
+const wasInterviewed = (a: { review2Marks: number | null; booking: { slot: { startTime: Date } } | null }) =>
+  a.review2Marks !== null || (!!a.booking && a.booking.slot.startTime <= new Date());
+
+// The four result lists, each with its own email:
+//   SHORTLISTED     waiting to book a slot              -> interview invite
+//   REJECTED        rejected before any interview       -> polite rejection (says they weren't moved to interview)
+//   SELECTED        selected after the interview        -> congratulations
+//   FINAL_REJECTED  rejected after their interview      -> thanks for interviewing
+// emailType is the EmailLog type recorded for that email.
 const RESULT_GROUPS = {
-  SHORTLISTED: { stages: ['SHORTLISTED', 'SLOT_CHOOSING'] as Stage[], shortlisted: true },
-  REJECTED: { stages: ['REJECTED'] as Stage[], shortlisted: false },
+  SHORTLISTED: { stages: ['SHORTLISTED', 'SLOT_CHOOSING'] as Stage[], emailType: 'SHORTLISTED', label: 'shortlist' },
+  REJECTED: { stages: ['REJECTED'] as Stage[], emailType: 'REJECTED', label: 'rejection' },
+  SELECTED: { stages: ['SELECTED'] as Stage[], emailType: 'SELECTED', label: 'selection' },
+  FINAL_REJECTED: { stages: ['REJECTED'] as Stage[], emailType: 'REJECTED', label: 'final result' },
 } as const;
 type ResultGroup = keyof typeof RESULT_GROUPS;
+const isResultGroup = (g: unknown): g is ResultGroup => typeof g === 'string' && g in RESULT_GROUPS;
 
 async function findGroup(domain: DomainType, group: ResultGroup) {
   const apps = await prisma.application.findMany({
     where: { domain, submittedAt: { not: null }, stage: { in: RESULT_GROUPS[group].stages } },
-    include: { user: { select: { name: true, email: true, regNumber: true } }, emails: true },
+    include: {
+      user: { select: { name: true, email: true, regNumber: true } },
+      emails: true,
+      booking: { include: { slot: { select: { startTime: true } } } },
+    },
     orderBy: { user: { regNumber: 'asc' } },
   });
-  return group === 'REJECTED' ? apps.filter((a) => a.review1Passed !== true) : apps;
+  if (group === 'REJECTED') return apps.filter((a) => !wasInterviewed(a));
+  if (group === 'FINAL_REJECTED') return apps.filter((a) => wasInterviewed(a));
+  return apps;
 }
 
-// Latest email status for one group's email type: SENT once any attempt succeeded
-function emailStatus(emails: { type: string; status: string; sentAt: Date | null; error: string | null; createdAt: Date }[], type: ResultGroup) {
+type GroupApp = Awaited<ReturnType<typeof findGroup>>[number];
+
+function sendGroupEmail(group: ResultGroup, app: GroupApp) {
+  const candidate = { name: app.user.name || 'Candidate', email: app.user.email };
+  switch (group) {
+    case 'SHORTLISTED':
+      return sendShortlistEmail({ ...candidate, shortlisted: true });
+    case 'REJECTED':
+      return sendShortlistEmail({ ...candidate, shortlisted: false });
+    case 'SELECTED':
+      return sendFinalResultEmail({ ...candidate, domain: app.domain }, true);
+    case 'FINAL_REJECTED':
+      return sendFinalResultEmail({ ...candidate, domain: app.domain }, false);
+  }
+}
+
+// Latest email status for one email type: SENT once any attempt succeeded
+function emailStatus(emails: { type: string; status: string; sentAt: Date | null; error: string | null; createdAt: Date }[], type: string) {
   const mine = emails.filter((e) => e.type === type).sort((a, b) => +b.createdAt - +a.createdAt);
   const sent = mine.find((e) => e.status === 'SENT');
   if (sent) return { status: 'SENT', sentAt: sent.sentAt, error: null };
@@ -229,14 +264,14 @@ export const releaseShortlistBatch = async (req: CustomRequest, res: Response) =
   }
 };
 
-// 3C. The two result lists (Shortlisted, Rejected) with each candidate's email status
+// 3C. The four result lists with each candidate's email status
 export const getResultLists = async (req: CustomRequest, res: Response) => {
   try {
     const effectiveDomain = scopedDomain(req.user, req.query.domain);
     if (!effectiveDomain) return res.status(400).json({ success: false, message: 'Please select a specific domain.' });
 
-    const toRow = (group: ResultGroup) => (a: Awaited<ReturnType<typeof findGroup>>[number]) => {
-      const mail = emailStatus(a.emails, group);
+    const toRow = (group: ResultGroup) => (a: GroupApp) => {
+      const mail = emailStatus(a.emails, RESULT_GROUPS[group].emailType);
       return {
         applicationId: a.id,
         name: a.user?.name,
@@ -244,52 +279,63 @@ export const getResultLists = async (req: CustomRequest, res: Response) => {
         regNumber: a.user?.regNumber,
         stage: a.stage,
         review1Marks: a.review1Marks,
+        review2Marks: a.review2Marks,
         emailStatus: mail.status,
         emailSentAt: mail.sentAt,
         emailError: mail.error,
       };
     };
-    const [shortlisted, rejected] = await Promise.all([findGroup(effectiveDomain, 'SHORTLISTED'), findGroup(effectiveDomain, 'REJECTED')]);
+    const [shortlisted, rejected, selected, finalRejected] = await Promise.all([
+      findGroup(effectiveDomain, 'SHORTLISTED'),
+      findGroup(effectiveDomain, 'REJECTED'),
+      findGroup(effectiveDomain, 'SELECTED'),
+      findGroup(effectiveDomain, 'FINAL_REJECTED'),
+    ]);
     return res.status(200).json({
       success: true,
       domain: effectiveDomain,
-      data: { shortlisted: shortlisted.map(toRow('SHORTLISTED')), rejected: rejected.map(toRow('REJECTED')) },
+      data: {
+        shortlisted: shortlisted.map(toRow('SHORTLISTED')),
+        rejected: rejected.map(toRow('REJECTED')),
+        selected: selected.map(toRow('SELECTED')),
+        finalRejected: finalRejected.map(toRow('FINAL_REJECTED')),
+      },
     });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// 3D. Send the shortlist or rejection email to everyone in that list who hasn't received it yet
-// body: { domain, group: "SHORTLISTED" | "REJECTED" }. Safe to press again: already-sent candidates are skipped,
-// failed ones are retried.
+// 3D. Send one list's email to everyone in it who hasn't received it yet
+// body: { domain, group: "SHORTLISTED" | "REJECTED" | "SELECTED" | "FINAL_REJECTED" }.
+// Safe to press again: already-sent candidates are skipped, failed ones are retried.
 export const sendResultEmails = async (req: CustomRequest, res: Response) => {
   try {
     const effectiveDomain = scopedDomain(req.user, req.body?.domain);
     if (!effectiveDomain) return res.status(400).json({ success: false, message: 'Please select a specific domain.' });
-    const group = req.body?.group as ResultGroup;
-    if (group !== 'SHORTLISTED' && group !== 'REJECTED') {
-      return res.status(400).json({ success: false, message: 'group must be SHORTLISTED or REJECTED.' });
+    const group = req.body?.group;
+    if (!isResultGroup(group)) {
+      return res.status(400).json({ success: false, message: `group must be one of ${Object.keys(RESULT_GROUPS).join(', ')}.` });
     }
+    const { emailType, label } = RESULT_GROUPS[group];
 
     const apps = await findGroup(effectiveDomain, group);
-    const pending = apps.filter((a) => emailStatus(a.emails, group).status !== 'SENT' && a.user?.email);
+    const pending = apps.filter((a) => emailStatus(a.emails, emailType).status !== 'SENT' && a.user?.email);
 
     let sent = 0, failed = 0;
     for (const app of pending) {
-      const attempts = app.emails.filter((e) => e.type === group).length + 1;
+      const attempts = app.emails.filter((e) => e.type === emailType).length + 1;
       try {
-        await sendShortlistEmail({ name: app.user.name || 'Candidate', email: app.user.email, shortlisted: RESULT_GROUPS[group].shortlisted });
-        await prisma.emailLog.create({ data: { applicationId: app.id, type: group, status: 'SENT', attempts, sentAt: new Date() } });
+        await sendGroupEmail(group, app);
+        await prisma.emailLog.create({ data: { applicationId: app.id, type: emailType, status: 'SENT', attempts, sentAt: new Date() } });
         sent++;
         await sleep(600); // stay under Gmail's sending rate
       } catch (err: any) {
-        await prisma.emailLog.create({ data: { applicationId: app.id, type: group, status: 'FAILED', attempts, error: String(err?.message ?? err).slice(0, 500) } });
+        await prisma.emailLog.create({ data: { applicationId: app.id, type: emailType, status: 'FAILED', attempts, error: String(err?.message ?? err).slice(0, 500) } });
         failed++;
       }
     }
 
-    const label = group === 'SHORTLISTED' ? 'shortlist' : 'rejection';
     return res.status(200).json({
       success: true,
       sent,
