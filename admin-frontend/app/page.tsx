@@ -20,6 +20,18 @@ const DOMAINS = [
   "EDITORIAL",
 ];
 
+// Result lists on the Results & Emails tab: the group name the backend uses, and its key in the
+// GET /applicants/results reply
+type ResultGroup = "SHORTLISTED" | "REJECTED" | "SELECTED" | "FINAL_REJECTED";
+type ResultListKey = "shortlisted" | "rejected" | "selected" | "finalRejected";
+const RESULT_LIST_KEY: Record<ResultGroup, ResultListKey> = {
+  SHORTLISTED: "shortlisted",
+  REJECTED: "rejected",
+  SELECTED: "selected",
+  FINAL_REJECTED: "finalRejected",
+};
+const EMPTY_RESULT_LISTS: Record<ResultListKey, any[]> = { shortlisted: [], rejected: [], selected: [], finalRejected: [] };
+
 export default function AdminPortal() {
   const [token, setToken] = useState<string | null>(null);
   const [adminUser, setAdminUser] = useState<{
@@ -67,12 +79,9 @@ export default function AdminPortal() {
   const [reviewComments, setReviewComments] = useState("");
   const [isShortlistedToggle, setIsShortlistedToggle] = useState<boolean>(false);
 
-  // TAB 3: Results & Emails (Shortlisted / Rejected lists, emails sent per group)
-  const [resultLists, setResultLists] = useState<{ shortlisted: any[]; rejected: any[] }>({
-    shortlisted: [],
-    rejected: [],
-  });
-  const [sendingGroup, setSendingGroup] = useState<"SHORTLISTED" | "REJECTED" | null>(null);
+  // TAB 3: Results & Emails (four result lists, one email per list)
+  const [resultLists, setResultLists] = useState<Record<ResultListKey, any[]>>(EMPTY_RESULT_LISTS);
+  const [sendingGroup, setSendingGroup] = useState<ResultGroup | null>(null);
 
   // TAB 3: Review 2 (Interview Evaluation) State
   const [review2Search, setReview2Search] = useState("");
@@ -496,21 +505,26 @@ export default function AdminPortal() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || "Failed to load result lists");
-      setResultLists(json.data || { shortlisted: [], rejected: [] });
+      setResultLists({ ...EMPTY_RESULT_LISTS, ...(json.data || {}) });
     } catch (err: any) {
       notify("error", err.message);
     }
   };
 
-  const handleSendResultEmails = async (group: "SHORTLISTED" | "REJECTED") => {
+  const handleSendResultEmails = async (group: ResultGroup) => {
     if (!token || resultsDomain === "ALL") return;
-    const list = group === "SHORTLISTED" ? resultLists.shortlisted : resultLists.rejected;
+    const list = resultLists[RESULT_LIST_KEY[group]];
     const pending = list.filter((c) => c.emailStatus !== "SENT").length;
     if (pending === 0) {
       notify("success", "Everyone in this list has already been emailed.");
       return;
     }
-    const kind = group === "SHORTLISTED" ? "shortlist (interview invite)" : "rejection";
+    const kind = {
+      SHORTLISTED: "shortlist (interview invite)",
+      REJECTED: "Review 1 rejection",
+      SELECTED: "selection (congratulations)",
+      FINAL_REJECTED: "not selected after interview",
+    }[group];
     if (!window.confirm(`Send the ${kind} email to ${pending} candidate(s) in ${resultsDomain}?\n\nCandidates who already received it are skipped.`)) {
       return;
     }
@@ -1694,7 +1708,8 @@ export default function AdminPortal() {
                   <div>
                     <h2 className="text-sm font-bold text-slate-900">Results &amp; Emails</h2>
                     <p className="text-xs text-slate-500">
-                      Candidates appear here after Review 1 results are released. Each button emails only the
+                      Shortlisted / Rejected at Review 1 fill up when Review 1 results are released; Selected /
+                      Not selected fill up as Review 2 decisions are saved. Each button emails only the
                       candidates in that list who haven&apos;t received it yet, so pressing it again is safe and retries
                       any that failed.
                     </p>
@@ -1730,7 +1745,7 @@ export default function AdminPortal() {
 
                 {resultsDomain === "ALL" ? (
                   <p className="text-xs text-slate-500 bg-white p-6 rounded-xl border border-slate-200 text-center">
-                    Choose a domain to see its Shortlisted and Rejected lists.
+                    Choose a domain to see its result lists.
                   </p>
                 ) : (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1745,10 +1760,26 @@ export default function AdminPortal() {
                       },
                       {
                         group: "REJECTED" as const,
-                        title: "Rejected",
+                        title: "Rejected at Review 1",
                         rows: resultLists.rejected,
-                        hint: "Not taken forward after Review 1. Email: polite rejection.",
+                        hint: "Not taken forward before any interview. Email: polite rejection.",
                         button: "Send rejection emails",
+                        color: "bg-slate-700 hover:bg-slate-800",
+                      },
+                      {
+                        group: "SELECTED" as const,
+                        title: "Selected",
+                        rows: resultLists.selected,
+                        hint: "Selected after the interview (Review 2). Email: congratulations and next steps.",
+                        button: "Send selection emails",
+                        color: "bg-indigo-600 hover:bg-indigo-700",
+                      },
+                      {
+                        group: "FINAL_REJECTED" as const,
+                        title: "Not selected after interview",
+                        rows: resultLists.finalRejected,
+                        hint: "Interviewed but not selected. Email: thank you for interviewing.",
+                        button: "Send final-result emails",
                         color: "bg-slate-700 hover:bg-slate-800",
                       },
                     ]).map(({ group, title, rows, hint, button, color }) => {
