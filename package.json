@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "description": "for TAM\r # Recruitment_Admin_Portal",
   "main": "index.js",
-  "scripts": {
-    "start": "npx tsx src/index.ts",
-    "dev": "nodemon --exec tsx src/index.ts",
-    "test": "node --test src/emailer/emailer.test.js",
-    "postinstall": "prisma skills sync || exit 0"
-  },
+"scripts": {
+  "start": "npx tsx src/index.ts",
+  "dev": "nodemon --exec tsx src/index.ts",
+  "test": "node --test src/emailer/emailer.test.js",
+  "postinstall": "prisma generate"
+},
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Muskan624-ai/Recruitment_Admin_Portal.git"
