@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 import { execSync } from "child_process";
 
-const backendUrl = process.env.BACKEND_URL || "http://localhost:5001";
+const backendUrl = process.env.BACKEND_URL || "http://localhost:5000";
 
 let gitHash = process.env.VERCEL_GIT_COMMIT_SHA?.substring(0, 7) || "";
 if (!gitHash) {

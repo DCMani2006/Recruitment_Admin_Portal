@@ -4,7 +4,7 @@ export const IS_MOCK =
 export const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ||
   process.env.BACKEND_URL ||
-  "http://localhost:5001";
+  "http://localhost:5000";
 
 // Endpoints have landed on both mock and real backend
 export const SLOT_DELETE_SUPPORTED = true;

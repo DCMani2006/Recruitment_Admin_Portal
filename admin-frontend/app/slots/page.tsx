@@ -374,6 +374,11 @@ function SlotPlannerContent() {
   // Delete Slot Handler
   const handleConfirmDeleteSlot = async () => {
     if (!slotToDelete || deleting) return;
+    if (slotToDelete.bookings && slotToDelete.bookings.length > 0) {
+      showToast("Cannot delete: this slot is already booked by a candidate.", "error");
+      setSlotToDelete(null);
+      return;
+    }
     setDeleting(true);
     try {
       await api.deleteSlot(slotToDelete.id);
@@ -381,7 +386,14 @@ function SlotPlannerContent() {
       setSlotToDelete(null);
       loadData();
     } catch (err: any) {
-      showToast(err.message || "Failed to delete slot.", "error");
+      const msg = err.message || "";
+      if (msg.includes("bookings") || msg.includes("booked")) {
+        showToast("Cannot delete: this slot is already booked by a candidate.", "error");
+      } else if (msg.includes("own domain") || msg.includes("only delete slots that you created") || msg.includes("Access Denied")) {
+        showToast("Access Denied: You can only delete interview slots that you personally created.", "error");
+      } else {
+        showToast(msg || "Failed to delete slot.", "error");
+      }
     } finally {
       setDeleting(false);
     }
@@ -515,13 +527,13 @@ function SlotPlannerContent() {
       {/* Delete Confirmation Modal */}
       <ConfirmModal
         isOpen={!!slotToDelete}
-        title={slotToDelete?.bookings && slotToDelete.bookings.length > 0 ? "Delete Booked Slot" : "Delete Unbooked Slot"}
+        title={slotToDelete?.bookings && slotToDelete.bookings.length > 0 ? "Booked Slot Protected" : "Delete Unbooked Slot"}
         message={
           slotToDelete?.bookings && slotToDelete.bookings.length > 0
-            ? `Warning: This slot on ${slotToDelete ? formatDate(slotToDelete.startTime) : ""} at ${slotToDelete ? formatTime(slotToDelete.startTime) : ""} is booked by ${slotToDelete.bookings[0]?.application?.user?.name || "a candidate"}. Deleting it will remove the slot from the schedule.`
+            ? `Protected: This slot on ${slotToDelete ? formatDate(slotToDelete.startTime) : ""} at ${slotToDelete ? formatTime(slotToDelete.startTime) : ""} is already booked by ${slotToDelete.bookings[0]?.application?.user?.name || "a candidate"}. To protect the candidate's interview, booked slots cannot be deleted.`
             : `Remove the unbooked slot on ${slotToDelete ? formatDate(slotToDelete.startTime) : ""} at ${slotToDelete ? formatTime(slotToDelete.startTime) : ""}? This availability will no longer be open to candidates.`
         }
-        confirmLabel="Confirm Deletion"
+        confirmLabel={slotToDelete?.bookings && slotToDelete.bookings.length > 0 ? "Cannot Delete" : "Confirm Deletion"}
         cancelLabel="Keep Slot"
         isDestructive={true}
         onConfirm={handleConfirmDeleteSlot}

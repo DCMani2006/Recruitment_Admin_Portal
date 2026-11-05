@@ -110,6 +110,7 @@ function LoginFormContent() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
+  const [setupCode, setSetupCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -164,6 +165,9 @@ function LoginFormContent() {
       if (!name.trim() || name.trim().length < 2) {
         errors.name = "Full name is required (at least 2 characters).";
       }
+      if (!setupCode.trim()) {
+        errors.setupCode = "Setup code is required (provided by Root Admin).";
+      }
       if (password.length < 8 || password.length > 72) {
         errors.password = "Password must be between 8 and 72 characters.";
       }
@@ -185,7 +189,7 @@ function LoginFormContent() {
         await login(email.trim(), password);
         showToast("Signed in successfully to the Editor's Desk.", "success");
       } else {
-        await setup(email.trim(), password, name.trim());
+        await setup(email.trim(), password, name.trim(), setupCode.trim().toUpperCase());
         showToast("Account claimed and password registered successfully.", "success");
       }
       router.push(redirectUrl);
@@ -493,6 +497,65 @@ function LoginFormContent() {
             </span>
           )}
         </div>
+
+        {tab === "setup" && (
+          <div>
+            <label
+              htmlFor="setupCodeInput"
+              style={{
+                display: "block",
+                fontFamily: "var(--font-label)",
+                fontSize: "0.75rem",
+                textTransform: "uppercase",
+                letterSpacing: "0.1em",
+                marginBottom: "0.2rem",
+                color: "var(--ink)",
+                fontWeight: 600,
+              }}
+            >
+              SETUP CODE (10 CHARACTERS)
+            </label>
+            <input
+              id="setupCodeInput"
+              name="setupCode"
+              type="text"
+              required
+              placeholder="e.g. 7F3A9BC210"
+              className="newspaper-input"
+              value={setupCode}
+              onChange={(e) => {
+                setSetupCode(e.target.value.toUpperCase());
+                if (fieldErrors.setupCode) setFieldErrors((prev) => ({ ...prev, setupCode: null }));
+              }}
+            />
+            <span
+              style={{
+                fontSize: "0.72rem",
+                fontFamily: "var(--font-body)",
+                fontStyle: "italic",
+                color: "var(--ink-soft)",
+                marginTop: "0.2rem",
+                display: "block",
+              }}
+            >
+              Provided by the Root Admin when your account was assigned.
+            </span>
+            {fieldErrors.setupCode && (
+              <span
+                role="alert"
+                style={{
+                  fontSize: "0.72rem",
+                  fontFamily: "var(--font-body)",
+                  color: "var(--stamp)",
+                  marginTop: "0.2rem",
+                  display: "block",
+                }}
+              >
+                ✦ {fieldErrors.setupCode}
+              </span>
+            )}
+          </div>
+        )}
 
         <div>
           <label

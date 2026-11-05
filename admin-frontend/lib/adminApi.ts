@@ -45,11 +45,11 @@ export const adminApi = {
     return handleResponse<AuthResponse>(res);
   },
 
-  async setup(email: string, password: string, name?: string): Promise<AuthResponse> {
+  async setup(email: string, password: string, name?: string, setupCode?: string): Promise<AuthResponse> {
     const res = await fetch("/api/admin/setup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify({ email, password, name, setupCode }),
     });
     return handleResponse<AuthResponse>(res);
   },
@@ -58,7 +58,31 @@ export const adminApi = {
     const res = await fetch(`/api/admin/applicants?domain=${encodeURIComponent(domain)}`, {
       headers: getAuthHeaders(),
     });
-    return handleResponse<Application[]>(res);
+    const apps = await handleResponse<Application[]>(res);
+    return apps.map((app: any) => {
+      let round1Decision: "SHORTLIST" | "REJECT" | null = app.round1Decision || null;
+      if (!round1Decision) {
+        if (app.stage === "SHORTLISTED" || app.stage === "SLOT_CHOOSING" || app.review1Passed === true) {
+          round1Decision = "SHORTLIST";
+        } else if (app.stage === "REJECTED" || (app.review1Passed === false && app.review1Marks !== null && app.review1Marks !== undefined)) {
+          round1Decision = "REJECT";
+        }
+      }
+
+      let round1EmailSentAt = app.round1EmailSentAt || null;
+      if (!round1EmailSentAt && Array.isArray(app.emails)) {
+        const sentEmail = app.emails.find((e: any) => (e.type === "SHORTLISTED" || e.type === "REJECTED") && e.status === "SENT");
+        if (sentEmail) {
+          round1EmailSentAt = sentEmail.sentAt;
+        }
+      }
+
+      return {
+        ...app,
+        round1Decision,
+        round1EmailSentAt,
+      };
+    });
   },
 
   async getApplication(applicationId: string): Promise<Application> {
@@ -81,12 +105,35 @@ export const adminApi = {
   },
 
   async updateReview(applicationId: string, payload: ReviewPayload): Promise<Application> {
+    const bodyPayload: any = { ...payload };
+    if (payload.round1Decision !== undefined) {
+      if (payload.round1Decision === "SHORTLIST") {
+        bodyPayload.review1Passed = true;
+      } else if (payload.round1Decision === "REJECT") {
+        bodyPayload.review1Passed = false;
+      } else {
+        bodyPayload.review1Passed = null;
+      }
+    }
+
     const res = await fetch(`/api/admin/applicants/${encodeURIComponent(applicationId)}/review`, {
       method: "PUT",
       headers: getAuthHeaders(),
-      body: JSON.stringify(payload),
+      body: JSON.stringify(bodyPayload),
     });
-    return handleResponse<Application>(res);
+    const updated = await handleResponse<Application>(res);
+    let round1Decision: "SHORTLIST" | "REJECT" | null = (updated as any).round1Decision || null;
+    if (!round1Decision) {
+      if (updated.stage === "SHORTLISTED" || updated.stage === "SLOT_CHOOSING" || updated.review1Passed === true) {
+        round1Decision = "SHORTLIST";
+      } else if (updated.stage === "REJECTED" || (updated.review1Passed === false && updated.review1Marks !== null && updated.review1Marks !== undefined)) {
+        round1Decision = "REJECT";
+      }
+    }
+    return {
+      ...updated,
+      round1Decision,
+    };
   },
 
   async createSlots(payload: CreateSlotPayload): Promise<{ success: boolean; message: string }> {
@@ -241,6 +288,31 @@ export const adminApi = {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify(payload),
+    });
+    return handleResponse(res);
+  },
+
+  async releaseShortlistBatch(domain: string): Promise<{ success: boolean; shortlisted: number; rejected: number; message: string }> {
+    const res = await fetch("/api/admin/applicants/release-shortlist", {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ domain }),
+    });
+    return handleResponse(res);
+  },
+
+  async sendResultEmails(domain: string, group: "SHORTLISTED" | "REJECTED" | "SELECTED" | "FINAL_REJECTED"): Promise<any> {
+    const res = await fetch("/api/admin/applicants/send-result-emails", {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ domain, group }),
+    });
+    return handleResponse(res);
+  },
+
+  async getResultLists(): Promise<any> {
+    const res = await fetch("/api/admin/applicants/results", {
+      headers: getAuthHeaders(),
     });
     return handleResponse(res);
   },

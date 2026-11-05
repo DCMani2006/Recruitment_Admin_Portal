@@ -528,7 +528,7 @@ export const mockApi = {
     };
   },
 
-  async setup(email: string, password: string, name?: string): Promise<AuthResponse> {
+  async setup(email: string, password: string, name?: string, setupCode?: string): Promise<AuthResponse> {
     await delay();
     const store = loadStore();
     const admin = store.admins.find((a) => a.email.toLowerCase() === email.toLowerCase());

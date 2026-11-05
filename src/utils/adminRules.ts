@@ -12,14 +12,14 @@ export class HttpError extends Error {
   }
 }
 
-// Move candidates between SHORTLISTED/SLOT_CHOOSING and INTERVIEW automatically.
+// Stage moves an admin may make. Flexible transitions allowed for domain heads / root admins.
 export const ALLOWED_STAGE_MOVES: Record<Stage, Stage[]> = {
-  FORM_FILLING: [Stage.SHORTLISTED, Stage.REJECTED],
-  SHORTLISTED: [Stage.SLOT_CHOOSING, Stage.REJECTED],
-  SLOT_CHOOSING: [Stage.REJECTED],
-  INTERVIEW: [Stage.SELECTED, Stage.REJECTED, Stage.SLOT_CHOOSING],
-  SELECTED: [],
-  REJECTED: [],
+  FORM_FILLING: [Stage.SHORTLISTED, Stage.SLOT_CHOOSING, Stage.INTERVIEW, Stage.SELECTED, Stage.REJECTED],
+  SHORTLISTED: [Stage.FORM_FILLING, Stage.SLOT_CHOOSING, Stage.INTERVIEW, Stage.SELECTED, Stage.REJECTED],
+  SLOT_CHOOSING: [Stage.FORM_FILLING, Stage.SHORTLISTED, Stage.INTERVIEW, Stage.SELECTED, Stage.REJECTED],
+  INTERVIEW: [Stage.FORM_FILLING, Stage.SHORTLISTED, Stage.SLOT_CHOOSING, Stage.SELECTED, Stage.REJECTED],
+  SELECTED: [Stage.FORM_FILLING, Stage.SHORTLISTED, Stage.SLOT_CHOOSING, Stage.INTERVIEW, Stage.REJECTED],
+  REJECTED: [Stage.FORM_FILLING, Stage.SHORTLISTED, Stage.SLOT_CHOOSING, Stage.INTERVIEW, Stage.SELECTED],
 };
 
 export const MAX_REVIEW2_MARKS = 10;
@@ -41,7 +41,7 @@ export function assertDomainAccess(admin: Admin, domain: DomainType) {
   }
 }
 
-// enforces the rules and frees the slot when a candidate is rejected or sent back to slot choosing. 
+// Enforces domain access and frees the slot when a candidate is moved away from interview/booking.
 export async function changeStage(applicationId: string, to: Stage, admin: Admin) {
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
@@ -50,19 +50,12 @@ export async function changeStage(applicationId: string, to: Stage, admin: Admin
   if (!app) throw new HttpError(404, "Application not found", "APPLICATION_NOT_FOUND");
   assertDomainAccess(admin, app.domain);
 
-  // Direct move from FORM_FILLING to SHORTLISTED or REJECTED is blocked: must use decision and email flow
-  if (app.stage === Stage.FORM_FILLING && (to === Stage.SHORTLISTED || to === Stage.REJECTED)) {
-    throw new HttpError(409, "Stage changes from FORM_FILLING must go through the decision and email workflow", "USE_DECISION_FLOW");
+  if (app.stage === to) {
+    return app;
   }
 
-  if (!ALLOWED_STAGE_MOVES[app.stage].includes(to)) {
-    throw new HttpError(409, `Can't move from ${app.stage} to ${to}`, "INVALID_STAGE_CHANGE");
-  }
-  if (app.stage === "FORM_FILLING" && to === "SHORTLISTED" && !app.submittedAt) {
-    throw new HttpError(409, "The candidate hasn't submitted the form", "NOT_SUBMITTED");
-  }
-
-  const freeSlot = app.booking && (to === "REJECTED" || to === "SLOT_CHOOSING");
+  // Free the booking if moving to REJECTED, FORM_FILLING, or SLOT_CHOOSING
+  const freeSlot = app.booking && (to === "REJECTED" || to === "FORM_FILLING" || to === "SLOT_CHOOSING");
 
   return prisma.$transaction(async (tx) => {
     if (freeSlot && app.booking) {

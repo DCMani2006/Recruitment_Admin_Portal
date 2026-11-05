@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { DomainType, Role, Stage, Round1Decision, EmailType, EmailStatus } from '@prisma/client';
 import { changeStage, assertDomainAccess, DIVISION_LABELS, MAX_REVIEW2_MARKS } from '../utils/adminRules';
 import { prisma } from '../utils/prisma';
-import { CustomRequest } from '../middleware/authMiddleware';
+import { CustomRequest, getJwtSecret, setupCodeFor, setupCodeMatches } from '../middleware/authMiddleware';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
@@ -193,24 +193,10 @@ export const updateApplicantReview = async (req: CustomRequest, res: Response) =
     }
 
     // Interview Marks check: PUT review accepts review2Marks (0 to 10), review2Comments, and review2Passed
-    // only when the stage is INTERVIEW or later AND the booked slot's endTime has passed
     const isAttemptingInterviewReview =
       review2Marks !== undefined || review2Comments !== undefined || review2Passed !== undefined;
 
     if (isAttemptingInterviewReview) {
-      const allowedStages = [Stage.INTERVIEW, Stage.SELECTED, Stage.REJECTED];
-      const isStageValid = allowedStages.includes(currentApp.stage);
-      const slotEndTime = currentApp.booking?.slot?.endTime ? new Date(currentApp.booking.slot.endTime) : null;
-      const isSlotPassed = slotEndTime ? slotEndTime.getTime() <= Date.now() : false;
-
-      if (!isStageValid || !isSlotPassed) {
-        return res.status(409).json({
-          success: false,
-          message: "Interview marks can only be entered after the candidate's interview slot has ended.",
-          code: 'INTERVIEW_NOT_DONE',
-        });
-      }
-
       if (review2Marks !== undefined) {
         const m = Number(review2Marks);
         if (isNaN(m) || m < 0 || m > MAX_REVIEW2_MARKS) {
@@ -690,6 +676,42 @@ export const deleteSlot = async (req: CustomRequest, res: Response) => {
   }
 };
 
+// 14B. Update an Interview Slot (PATCH /slots/:id)
+export const updateInterviewSlot = async (req: CustomRequest, res: Response) => {
+  try {
+    const admin = req.user as any;
+    const { id } = req.params;
+    const { meetingLink } = req.body;
+
+    const slot = await prisma.slot.findUnique({ where: { id: String(id) } });
+    if (!slot) {
+      return res.status(404).json({ success: false, message: 'Slot not found', code: 'SLOT_NOT_FOUND' });
+    }
+
+    assertDomainAccess(admin, slot.domain);
+
+    if (admin?.role !== 'ROOT_ADMIN' && slot.interviewerId !== admin?.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only update slots that you created.',
+        code: 'FORBIDDEN',
+      });
+    }
+
+    const updated = await prisma.slot.update({
+      where: { id: String(id) },
+      data: {
+        meetingLink: meetingLink !== undefined ? (meetingLink ? String(meetingLink).trim() : null) : slot.meetingLink,
+      },
+    });
+
+    return res.status(200).json({ success: true, data: updated, message: 'Slot meeting link updated.' });
+  } catch (error: any) {
+    const status = error.status || 500;
+    return res.status(status).json({ success: false, message: error.message || 'Server error updating slot', code: error.code });
+  }
+};
+
 // 15. Round 1 Summary (GET /round1/summary?domain=)
 export const getRound1Summary = async (req: CustomRequest, res: Response) => {
   try {
@@ -995,10 +1017,13 @@ export const sendRound1Emails = async (req: CustomRequest, res: Response) => {
 // 18. Setup Create Admin Account for first time only
 export const setupAdminAccount = async (req: Request, res: Response) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, setupCode } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ success: false, message: 'Email and password are required.' });
+    }
+    if (String(password).length < 8) {
+      return res.status(400).json({ success: false, message: 'Use at least 8 characters for the password.' });
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
@@ -1009,7 +1034,15 @@ export const setupAdminAccount = async (req: Request, res: Response) => {
     if (!admin) {
       return res.status(403).json({
         success: false,
-        message: 'Access Denied: This email has not been assigned as an admin.',
+        message: 'Access Denied: This email has not been assigned as an admin. Ask the root admin to whitelist your email.',
+      });
+    }
+
+    // If setup code provided or admin was whitelisted, verify code
+    if (setupCode && !setupCodeMatches(normalizedEmail, setupCode)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Email or setup code is wrong. Ask the root admin for your setup code.',
       });
     }
 
@@ -1030,7 +1063,7 @@ export const setupAdminAccount = async (req: Request, res: Response) => {
       },
     });
 
-    const secret = process.env.JWT_SECRET || process.env.ADMIN_JWT_SECRET || 'fallback_secret';
+    const secret = getJwtSecret();
     const token = jwt.sign(
       { id: updatedAdmin.id, email: updatedAdmin.email, role: updatedAdmin.role, domain: updatedAdmin.domain },
       secret,
@@ -1046,8 +1079,27 @@ export const setupAdminAccount = async (req: Request, res: Response) => {
       role: updatedAdmin.role,
       domain: updatedAdmin.domain,
     });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: 'Server error during account setup' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message || 'Server error during account setup' });
+  }
+};
+
+// 18B. Get All Whitelisted Domain Heads
+export const getDomainHeads = async (req: Request, res: Response) => {
+  try {
+    const admins = await prisma.admin.findMany({ orderBy: { email: 'asc' } });
+    const data = admins.map((a) => ({
+      id: a.id,
+      email: a.email,
+      name: a.name,
+      role: a.role,
+      domain: a.domain,
+      hasPassword: !!a.password,
+      setupCode: a.password ? null : setupCodeFor(a.email),
+    }));
+    return res.status(200).json({ success: true, data });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message || 'Server error fetching domain heads' });
   }
 };
 

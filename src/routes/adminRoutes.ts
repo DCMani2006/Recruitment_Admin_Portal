@@ -6,8 +6,10 @@ import {
   getApplicantById,
   updateApplicantReview,
   createInterviewSlots,
+  updateInterviewSlot,
   deleteSlot,
   getMySchedule,
+  getDomainHeads,
   assignDomainHead,
   createSubsection,
   updateSubsection,
@@ -20,11 +22,11 @@ import {
   getRound1Templates,
   sendRound1Emails,
 } from '../controllers/adminController';
-import { authorizeRole, verifyToken } from '../middleware/authMiddleware';
+import { authorizeRole, limitLoginAttempts, verifyToken } from '../middleware/authMiddleware';
 
 const router = Router();
-router.post('/setup', setupAdminAccount);
-router.post('/login', loginAdmin);
+router.post('/setup', limitLoginAttempts, setupAdminAccount);
+router.post('/login', limitLoginAttempts, loginAdmin);
 
 router.use(verifyToken);
 
@@ -33,8 +35,9 @@ router.get('/applicants', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getAllAp
 router.get('/applicants/:id', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getApplicantById);
 router.put('/applicants/:applicationId/review', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), updateApplicantReview);
 
-// Domain Heads create their slots, delete slots, and view their schedules
+// Domain Heads create their slots, update slots, delete slots, and view their schedules
 router.post('/slots', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), createInterviewSlots);
+router.patch('/slots/:id', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), updateInterviewSlot);
 router.delete('/slots/:id', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), deleteSlot);
 router.get('/schedule/:adminId', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getMySchedule);
 
@@ -53,7 +56,8 @@ router.get('/round1/summary', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getR
 router.get('/round1/templates', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getRound1Templates);
 router.post('/round1/send', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), sendRound1Emails);
 
-// Only the Root Admin can assign new Domain Heads
+// Only the Root Admin can view and assign Domain Heads
+router.get('/domain-heads', authorizeRole(['ROOT_ADMIN']), getDomainHeads);
 router.post('/domain-heads', authorizeRole(['ROOT_ADMIN']), assignDomainHead);
 
 export default router;

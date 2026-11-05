@@ -10,7 +10,7 @@ interface AuthContextType {
   token: string | null;
   loading: boolean;
   login: (email: string, pass: string) => Promise<AuthResponse>;
-  setup: (email: string, pass: string, name?: string) => Promise<AuthResponse>;
+  setup: (email: string, pass: string, name?: string, setupCode?: string) => Promise<AuthResponse>;
   logout: () => void;
   isAuthenticated: boolean;
 }
@@ -63,8 +63,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return res;
   };
 
-  const setup = async (email: string, pass: string, name?: string): Promise<AuthResponse> => {
-    const res = await api.setup(email, pass, name);
+  const setup = async (email: string, pass: string, name?: string, setupCode?: string): Promise<AuthResponse> => {
+    const res = await api.setup(email, pass, name, setupCode);
     saveAuth(res);
     return res;
   };
