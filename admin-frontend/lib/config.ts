@@ -2,6 +2,7 @@ export const IS_MOCK =
   process.env.NEXT_PUBLIC_USE_MOCK !== "false";
 
 export const BACKEND_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_BACKEND_URL ||
   process.env.BACKEND_URL ||
   "http://localhost:5000";
