@@ -18,42 +18,42 @@ const DEMO_USERS = [
   },
   {
     key: "DESIGN",
-    label: `Domain Head (${DOMAIN_LABELS.DESIGN})`,
+    label: DOMAIN_LABELS.DESIGN,
     email: "design.head@tam.vit.ac.in",
     role: "DOMAIN_HEAD",
     domain: "DESIGN" as DomainEnum,
   },
   {
     key: "MARKETING",
-    label: `Domain Head (${DOMAIN_LABELS.MARKETING})`,
+    label: DOMAIN_LABELS.MARKETING,
     email: "marketing.head@tam.vit.ac.in",
     role: "DOMAIN_HEAD",
     domain: "MARKETING" as DomainEnum,
   },
   {
     key: "R_AND_D",
-    label: `Domain Head (${DOMAIN_LABELS.R_AND_D})`,
+    label: DOMAIN_LABELS.R_AND_D,
     email: "rd.head@tam.vit.ac.in",
     role: "DOMAIN_HEAD",
     domain: "R_AND_D" as DomainEnum,
   },
   {
     key: "MANAGEMENT",
-    label: `Domain Head (${DOMAIN_LABELS.MANAGEMENT})`,
+    label: DOMAIN_LABELS.MANAGEMENT,
     email: "management.head@tam.vit.ac.in",
     role: "DOMAIN_HEAD",
     domain: "MANAGEMENT" as DomainEnum,
   },
   {
     key: "EDITORIAL",
-    label: `Domain Head (${DOMAIN_LABELS.EDITORIAL})`,
+    label: DOMAIN_LABELS.EDITORIAL,
     email: "editorial.head@tam.vit.ac.in",
     role: "DOMAIN_HEAD",
     domain: "EDITORIAL" as DomainEnum,
   },
   {
     key: "TECHNICAL",
-    label: `Domain Head (${DOMAIN_LABELS.TECHNICAL})`,
+    label: DOMAIN_LABELS.TECHNICAL,
     email: "tech.head@tam.vit.ac.in",
     role: "DOMAIN_HEAD",
     domain: "TECHNICAL" as DomainEnum,
@@ -124,6 +124,10 @@ function LoginFormContent() {
 
   const redirectUrl = searchParams.get("redirect") || "/";
   const queryMsg = searchParams.get("msg");
+
+  useEffect(() => {
+    document.title = "Sign In · The TAM Times Admin";
+  }, []);
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {

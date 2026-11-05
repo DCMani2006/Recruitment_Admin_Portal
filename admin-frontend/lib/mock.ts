@@ -19,7 +19,7 @@ import {
 } from "./types";
 
 const delay = (ms = 400) => new Promise((resolve) => setTimeout(resolve, ms));
-const STORAGE_KEY = "tam_admin_mock_store_v5"; // bump key to reset to new deterministic seed
+const STORAGE_KEY = "tam_admin_mock_store_v7"; // bumped for simplified slot planner and decision flow
 
 interface MockStore {
   admins: {
@@ -132,7 +132,7 @@ function getInitialStore(): MockStore {
         subsectionId: sub1.id,
         order: 1,
         required: true,
-        maxLength: 2000,
+        maxLength: 100000,
       },
       {
         id: `q-${domain.toLowerCase()}-2`,
@@ -142,7 +142,7 @@ function getInitialStore(): MockStore {
         subsectionId: sub2.id,
         order: 2,
         required: true,
-        maxLength: 2000,
+        maxLength: 100000,
       },
       {
         id: `q-${domain.toLowerCase()}-3`,
@@ -152,7 +152,7 @@ function getInitialStore(): MockStore {
         subsectionId: sub2.id,
         order: 3,
         required: true,
-        maxLength: 2000,
+        maxLength: 100000,
       }
     );
   });
@@ -214,6 +214,7 @@ function getInitialStore(): MockStore {
     domain: DomainEnum;
     stage: ApplicationStage;
     submittedDaysAgo: number;
+    round1Decision?: "SHORTLIST" | "REJECT" | null;
     q1Marks?: number;
     q2Marks?: number;
     q3Marks?: number;
@@ -223,14 +224,14 @@ function getInitialStore(): MockStore {
 
   const seedSpecs: CandidateSeed[] = [
     // TECHNICAL (14 candidates)
-    { name: "Aarav Sharma", domain: "TECHNICAL", stage: "FORM_FILLING", submittedDaysAgo: 11 },
-    { name: "Ishaan Verma", domain: "TECHNICAL", stage: "FORM_FILLING", submittedDaysAgo: 9 },
+    { name: "Aarav Sharma", domain: "TECHNICAL", stage: "FORM_FILLING", submittedDaysAgo: 11, round1Decision: "SHORTLIST", q1Marks: 8, q2Marks: 11, q3Marks: 7 },
+    { name: "Ishaan Verma", domain: "TECHNICAL", stage: "FORM_FILLING", submittedDaysAgo: 9, round1Decision: "REJECT", q1Marks: 4, q2Marks: 5, q3Marks: 4 },
     { name: "Devansh Nair", domain: "TECHNICAL", stage: "FORM_FILLING", submittedDaysAgo: 7 },
     { name: "Kunal Sundaram", domain: "TECHNICAL", stage: "FORM_FILLING", submittedDaysAgo: 4 },
     { name: "Ronit Sengupta", domain: "TECHNICAL", stage: "FORM_FILLING", submittedDaysAgo: 2 },
-    { name: "Rohan Gupta", domain: "TECHNICAL", stage: "SHORTLISTED", submittedDaysAgo: 10, q1Marks: 7, q2Marks: 11, q3Marks: 7 },
-    { name: "Kabir Sen", domain: "TECHNICAL", stage: "SHORTLISTED", submittedDaysAgo: 8, q1Marks: 6, q2Marks: 12, q3Marks: 6 },
-    { name: "Arjun Chawla", domain: "TECHNICAL", stage: "SHORTLISTED", submittedDaysAgo: 5, q1Marks: 8, q2Marks: 10, q3Marks: 7 },
+    { name: "Rohan Gupta", domain: "TECHNICAL", stage: "FORM_FILLING", submittedDaysAgo: 10, round1Decision: "SHORTLIST", q1Marks: 7, q2Marks: 11, q3Marks: 7 },
+    { name: "Kabir Sen", domain: "TECHNICAL", stage: "FORM_FILLING", submittedDaysAgo: 8, round1Decision: "SHORTLIST", q1Marks: 6, q2Marks: 12, q3Marks: 6 },
+    { name: "Arjun Chawla", domain: "TECHNICAL", stage: "FORM_FILLING", submittedDaysAgo: 5, round1Decision: "SHORTLIST", q1Marks: 8, q2Marks: 10, q3Marks: 7 },
     { name: "Siddharth Roy", domain: "TECHNICAL", stage: "SLOT_CHOOSING", submittedDaysAgo: 9, q1Marks: 6, q2Marks: 10, q3Marks: 6 },
     { name: "Vikram Joshi", domain: "TECHNICAL", stage: "SLOT_CHOOSING", submittedDaysAgo: 6, q1Marks: 7, q2Marks: 11, q3Marks: 7 },
     { name: "Ayush Kulkarni", domain: "TECHNICAL", stage: "INTERVIEW", submittedDaysAgo: 8, q1Marks: 8, q2Marks: 13, q3Marks: 9, interviewDayOffset: 0, interviewSlotIdx: 2 }, // Today 14:30
@@ -239,11 +240,11 @@ function getInitialStore(): MockStore {
     { name: "Raghav Rastogi", domain: "TECHNICAL", stage: "REJECTED", submittedDaysAgo: 10, q1Marks: 4, q2Marks: 6, q3Marks: 4 }, // 14/35
 
     // DESIGN (11 candidates)
-    { name: "Diya Patel", domain: "DESIGN", stage: "FORM_FILLING", submittedDaysAgo: 12 },
-    { name: "Ananya Iyer", domain: "DESIGN", stage: "FORM_FILLING", submittedDaysAgo: 8 },
+    { name: "Diya Patel", domain: "DESIGN", stage: "FORM_FILLING", submittedDaysAgo: 12, round1Decision: "SHORTLIST", q1Marks: 9, q2Marks: 12, q3Marks: 8 },
+    { name: "Ananya Iyer", domain: "DESIGN", stage: "FORM_FILLING", submittedDaysAgo: 8, round1Decision: "REJECT", q1Marks: 3, q2Marks: 4, q3Marks: 3 },
     { name: "Meghna Nair", domain: "DESIGN", stage: "FORM_FILLING", submittedDaysAgo: 3 },
-    { name: "Prisha Hegde", domain: "DESIGN", stage: "SHORTLISTED", submittedDaysAgo: 9, q1Marks: 7, q2Marks: 11, q3Marks: 8 },
-    { name: "Tara Deshmukh", domain: "DESIGN", stage: "SHORTLISTED", submittedDaysAgo: 6, q1Marks: 6, q2Marks: 10, q3Marks: 7 },
+    { name: "Prisha Hegde", domain: "DESIGN", stage: "FORM_FILLING", submittedDaysAgo: 9, round1Decision: "SHORTLIST", q1Marks: 7, q2Marks: 11, q3Marks: 8 },
+    { name: "Tara Deshmukh", domain: "DESIGN", stage: "FORM_FILLING", submittedDaysAgo: 6, round1Decision: "SHORTLIST", q1Marks: 6, q2Marks: 10, q3Marks: 7 },
     { name: "Sana Mirchandani", domain: "DESIGN", stage: "SLOT_CHOOSING", submittedDaysAgo: 8, q1Marks: 7, q2Marks: 12, q3Marks: 8 },
     { name: "Kavya Menon", domain: "DESIGN", stage: "SLOT_CHOOSING", submittedDaysAgo: 5, q1Marks: 6, q2Marks: 10, q3Marks: 6 },
     { name: "Shambhavi Kaul", domain: "DESIGN", stage: "INTERVIEW", submittedDaysAgo: 7, q1Marks: 9, q2Marks: 14, q3Marks: 8, interviewDayOffset: 0, interviewSlotIdx: 0 }, // Today 14:00
@@ -252,11 +253,11 @@ function getInitialStore(): MockStore {
     { name: "Bhavna Pillai", domain: "DESIGN", stage: "REJECTED", submittedDaysAgo: 9, q1Marks: 7, q2Marks: 11, q3Marks: 7, interviewDayOffset: -3, interviewSlotIdx: 3 }, // Rejected after interview
 
     // MANAGEMENT (10 candidates)
-    { name: "Rishabh Kapoor", domain: "MANAGEMENT", stage: "FORM_FILLING", submittedDaysAgo: 11 },
-    { name: "Aditya Rao", domain: "MANAGEMENT", stage: "FORM_FILLING", submittedDaysAgo: 7 },
+    { name: "Rishabh Kapoor", domain: "MANAGEMENT", stage: "FORM_FILLING", submittedDaysAgo: 11, round1Decision: "SHORTLIST", q1Marks: 8, q2Marks: 10, q3Marks: 7 },
+    { name: "Aditya Rao", domain: "MANAGEMENT", stage: "FORM_FILLING", submittedDaysAgo: 7, round1Decision: "REJECT", q1Marks: 4, q2Marks: 5, q3Marks: 4 },
     { name: "Neha Singhania", domain: "MANAGEMENT", stage: "FORM_FILLING", submittedDaysAgo: 4 },
-    { name: "Faizan Ansari", domain: "MANAGEMENT", stage: "SHORTLISTED", submittedDaysAgo: 8, q1Marks: 7, q2Marks: 10, q3Marks: 7 },
-    { name: "Zoya Merchant", domain: "MANAGEMENT", stage: "SHORTLISTED", submittedDaysAgo: 5, q1Marks: 6, q2Marks: 11, q3Marks: 6 },
+    { name: "Faizan Ansari", domain: "MANAGEMENT", stage: "FORM_FILLING", submittedDaysAgo: 8, round1Decision: "SHORTLIST", q1Marks: 7, q2Marks: 10, q3Marks: 7 },
+    { name: "Zoya Merchant", domain: "MANAGEMENT", stage: "FORM_FILLING", submittedDaysAgo: 5, round1Decision: "SHORTLIST", q1Marks: 6, q2Marks: 11, q3Marks: 6 },
     { name: "Pallavi Bose", domain: "MANAGEMENT", stage: "SLOT_CHOOSING", submittedDaysAgo: 6, q1Marks: 7, q2Marks: 11, q3Marks: 7 },
     { name: "Kritika Kamat", domain: "MANAGEMENT", stage: "INTERVIEW", submittedDaysAgo: 7, q1Marks: 7, q2Marks: 12, q3Marks: 7, interviewDayOffset: 0, interviewSlotIdx: 4 }, // Today 15:00
     { name: "Divya Padmanabhan", domain: "MANAGEMENT", stage: "INTERVIEW", submittedDaysAgo: 6, q1Marks: 9, q2Marks: 13, q3Marks: 9, interviewDayOffset: 2, interviewSlotIdx: 0 },
@@ -266,7 +267,7 @@ function getInitialStore(): MockStore {
     // MARKETING (7 candidates)
     { name: "Tanvi Bhatia", domain: "MARKETING", stage: "FORM_FILLING", submittedDaysAgo: 9 },
     { name: "Avani Sharma", domain: "MARKETING", stage: "FORM_FILLING", submittedDaysAgo: 3 },
-    { name: "Vivaan Kaushik", domain: "MARKETING", stage: "SHORTLISTED", submittedDaysAgo: 7, q1Marks: 8, q2Marks: 11, q3Marks: 7 },
+    { name: "Vivaan Kaushik", domain: "MARKETING", stage: "FORM_FILLING", submittedDaysAgo: 7, round1Decision: "SHORTLIST", q1Marks: 8, q2Marks: 11, q3Marks: 7 },
     { name: "Sneha Gokhale", domain: "MARKETING", stage: "SLOT_CHOOSING", submittedDaysAgo: 6, q1Marks: 6, q2Marks: 10, q3Marks: 7 },
     { name: "Armaan Singhania", domain: "MARKETING", stage: "INTERVIEW", submittedDaysAgo: 5, q1Marks: 8, q2Marks: 14, q3Marks: 8, interviewDayOffset: 0, interviewSlotIdx: 7 }, // Today 15:45
     { name: "Suhani Choudhury", domain: "MARKETING", stage: "SELECTED", submittedDaysAgo: 8, q1Marks: 10, q2Marks: 13, q3Marks: 10, interviewDayOffset: -1, interviewSlotIdx: 1 }, // 33/35
@@ -274,14 +275,14 @@ function getInitialStore(): MockStore {
 
     // EDITORIAL (5 candidates)
     { name: "Pranav Kumar", domain: "EDITORIAL", stage: "FORM_FILLING", submittedDaysAgo: 8 },
-    { name: "Jahnavi Ray", domain: "EDITORIAL", stage: "SHORTLISTED", submittedDaysAgo: 6, q1Marks: 7, q2Marks: 9, q3Marks: 6 },
+    { name: "Jahnavi Ray", domain: "EDITORIAL", stage: "FORM_FILLING", submittedDaysAgo: 6, round1Decision: "SHORTLIST", q1Marks: 7, q2Marks: 9, q3Marks: 6 },
     { name: "Anmol Jain", domain: "EDITORIAL", stage: "SLOT_CHOOSING", submittedDaysAgo: 5, q1Marks: 7, q2Marks: 9, q3Marks: 6 },
     { name: "Juhi Ganguly", domain: "EDITORIAL", stage: "INTERVIEW", submittedDaysAgo: 4, q1Marks: 8, q2Marks: 12, q3Marks: 8, interviewDayOffset: 1, interviewSlotIdx: 2 }, // Tomorrow 14:30
     { name: "Akash Mathur", domain: "EDITORIAL", stage: "REJECTED", submittedDaysAgo: 6, q1Marks: 4, q2Marks: 7, q3Marks: 5 }, // 16/35
 
     // R_AND_D (3 candidates - very few)
     { name: "Harshit Verma", domain: "R_AND_D", stage: "FORM_FILLING", submittedDaysAgo: 5 },
-    { name: "Vedant Saxena", domain: "R_AND_D", stage: "SHORTLISTED", submittedDaysAgo: 7, q1Marks: 8, q2Marks: 13, q3Marks: 8 },
+    { name: "Vedant Saxena", domain: "R_AND_D", stage: "FORM_FILLING", submittedDaysAgo: 7, round1Decision: "SHORTLIST", q1Marks: 8, q2Marks: 13, q3Marks: 8 },
     { name: "Adil Parvez", domain: "R_AND_D", stage: "INTERVIEW", submittedDaysAgo: 4, q1Marks: 9, q2Marks: 14, q3Marks: 9, interviewDayOffset: 2, interviewSlotIdx: 8 },
   ];
 
@@ -383,6 +384,26 @@ function getInitialStore(): MockStore {
       ? 4
       : null;
 
+    let round1Decision: "SHORTLIST" | "REJECT" | null = null;
+    let round1DecisionAt: string | null = null;
+    let round1EmailSentAt: string | null = null;
+
+    if (spec.stage === "SHORTLISTED" || spec.stage === "SLOT_CHOOSING" || spec.stage === "INTERVIEW" || spec.stage === "SELECTED") {
+      round1Decision = "SHORTLIST";
+      round1DecisionAt = new Date(submittedDate.getTime() + 86400000).toISOString();
+      round1EmailSentAt = new Date(submittedDate.getTime() + 172800000).toISOString();
+    } else if (spec.stage === "REJECTED") {
+      round1Decision = "REJECT";
+      round1DecisionAt = new Date(submittedDate.getTime() + 86400000).toISOString();
+      round1EmailSentAt = new Date(submittedDate.getTime() + 172800000).toISOString();
+    } else if (spec.stage === "FORM_FILLING") {
+      if (spec.round1Decision) {
+        round1Decision = spec.round1Decision;
+        round1DecisionAt = new Date(submittedDate.getTime() + 86400000).toISOString();
+        round1EmailSentAt = null;
+      }
+    }
+
     const appObj: Application = {
       id: appId,
       domain: spec.domain,
@@ -390,7 +411,7 @@ function getInitialStore(): MockStore {
       submittedAt: submittedDate.toISOString(),
       review1Marks: totalReview1Marks,
       review1Comments: totalReview1Marks ? "Comprehensive responses with sound technical foundation." : null,
-      review1Passed: spec.stage !== "FORM_FILLING" && (spec.stage !== "REJECTED" || isRejectedAfterInterview),
+      review1Passed: round1Decision === "SHORTLIST" || spec.stage !== "FORM_FILLING" && (spec.stage !== "REJECTED" || isRejectedAfterInterview),
       review2Marks: r2Marks,
       review2Comments: isSelected
         ? "Exceptional discussion during live interview. Clear communication and strong domain depth."
@@ -398,6 +419,9 @@ function getInitialStore(): MockStore {
         ? "Interview did not demonstrate adequate depth required for current cycle."
         : null,
       review2Passed: isSelected ? true : isRejectedAfterInterview ? false : null,
+      round1Decision,
+      round1DecisionAt,
+      round1EmailSentAt,
       userId,
       user: userObj,
       booking: bookingObj,
@@ -417,6 +441,9 @@ function getInitialStore(): MockStore {
 }
 
 function loadStore(): MockStore {
+  if (inMemoryStore) {
+    return inMemoryStore;
+  }
   if (typeof window === "undefined") {
     return getInitialStore();
   }
@@ -461,9 +488,16 @@ function loadStore(): MockStore {
   }
 }
 
+let inMemoryStore: MockStore | null = null;
+
 function saveStore(store: MockStore) {
+  inMemoryStore = store;
   if (typeof window !== "undefined") {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    } catch {
+      // In-memory fallback if localStorage quota exceeded
+    }
   }
 }
 
@@ -559,7 +593,15 @@ export const mockApi = {
     }
     const app = store.applications[appIndex];
 
+    // Refuse direct stage jump from FORM_FILLING to SHORTLISTED or REJECTED
     if (payload.stage && payload.stage !== app.stage) {
+      if (app.stage === "FORM_FILLING" && (payload.stage === "SHORTLISTED" || payload.stage === "REJECTED")) {
+        const err: any = new Error("Stage changes from FORM_FILLING must go through the decision and email workflow");
+        err.code = "USE_DECISION_FLOW";
+        err.status = 409;
+        throw err;
+      }
+
       if (payload.stage === "SHORTLISTED" && !app.submittedAt) {
         throw new Error("NOT_SUBMITTED: Cannot shortlist an unsubmitted application");
       }
@@ -579,6 +621,56 @@ export const mockApi = {
         }
       }
       app.stage = payload.stage;
+    }
+
+    // Refuse round 1 changes if email already sent
+    if (app.round1EmailSentAt) {
+      const isAttemptingRound1 =
+        payload.review1Marks !== undefined ||
+        payload.review1Comments !== undefined ||
+        payload.review1Passed !== undefined ||
+        payload.round1Decision !== undefined ||
+        (payload.answerScores && payload.answerScores.length > 0);
+
+      if (isAttemptingRound1) {
+        const err: any = new Error("Round 1 review is locked after decision emails have been sent.");
+        err.code = "DECISION_LOCKED";
+        err.status = 409;
+        throw err;
+      }
+    }
+
+    // Round 1 Decision setting
+    if (payload.round1Decision !== undefined) {
+      if (!app.submittedAt || app.stage !== "FORM_FILLING" || app.round1EmailSentAt) {
+        const err: any = new Error("Round 1 decision can only be updated for submitted applications in FORM_FILLING before emails are dispatched.");
+        err.code = "DECISION_LOCKED";
+        err.status = 409;
+        throw err;
+      }
+      if (payload.round1Decision === "REJECT" && payload.review1Comments !== undefined) {
+        if (!payload.review1Comments || payload.review1Comments.trim().length < 10) {
+          const err: any = new Error("A comment of at least 10 characters is required for rejection.");
+          err.status = 400;
+          throw err;
+        }
+      }
+      app.round1Decision = payload.round1Decision;
+      app.round1DecisionAt = payload.round1Decision ? new Date().toISOString() : null;
+      app.review1Passed = payload.round1Decision === "SHORTLIST";
+    }
+
+    // Interview Marks check
+    const isAttemptingInterview =
+      payload.review2Marks !== undefined || payload.review2Comments !== undefined || payload.review2Passed !== undefined;
+    if (isAttemptingInterview) {
+      const allowedStages = ["INTERVIEW", "SELECTED", "REJECTED"];
+      if (!allowedStages.includes(app.stage)) {
+        const err: any = new Error("Interview marks can only be entered for candidates in interview stage.");
+        err.code = "INTERVIEW_NOT_ALLOWED";
+        err.status = 409;
+        throw err;
+      }
     }
 
     if (payload.review1Marks !== undefined) app.review1Marks = payload.review1Marks;
@@ -701,7 +793,7 @@ export const mockApi = {
       subsectionId: payload.subsectionId || null,
       order: payload.order || store.questions.length + 1,
       required: payload.required ?? true,
-      maxLength: payload.maxLength || 2000,
+      maxLength: 100000,
     };
     store.questions.push(newQ);
     saveStore(store);
@@ -722,6 +814,23 @@ export const mockApi = {
     store.slots.splice(idx, 1);
     saveStore(store);
     return { success: true, message: "Slot deleted successfully." };
+  },
+
+  async updateSlot(slotId: string, payload: { meetingLink?: string }): Promise<Slot> {
+    await delay();
+    const store = loadStore();
+    const idx = store.slots.findIndex((s) => s.id === slotId);
+    if (idx === -1) throw new Error("Slot not found");
+    store.slots[idx] = { ...store.slots[idx], ...payload };
+    store.applications.forEach((app) => {
+      if (app.booking?.slotId === slotId) {
+        if (app.booking.slot && payload.meetingLink) {
+          app.booking.slot.meetingLink = payload.meetingLink;
+        }
+      }
+    });
+    saveStore(store);
+    return store.slots[idx];
   },
 
   async updateQuestion(id: string, payload: Partial<Question>): Promise<Question> {
@@ -815,6 +924,95 @@ export const mockApi = {
       message: `Assigned ${assigned.length} head(s) to ${DOMAIN_LABELS[domain]}.`,
       assignedEmails: assigned,
       alreadyExisting,
+    };
+  },
+
+  async getRound1Summary(domain?: string): Promise<{
+    undecided: number;
+    pendingShortlist: number;
+    pendingReject: number;
+    sentShortlist: number;
+    sentReject: number;
+  }> {
+    await new Promise((r) => setTimeout(r, 120));
+    const store = loadStore();
+    const effectiveDomain = domain && domain !== "ALL" ? domain : undefined;
+
+    let undecided = 0;
+    let pendingShortlist = 0;
+    let pendingReject = 0;
+    let sentShortlist = 0;
+    let sentReject = 0;
+
+    store.applications.forEach((app: any) => {
+      if (effectiveDomain && app.domain !== effectiveDomain) return;
+      if (!app.submittedAt) return;
+
+      if (app.round1EmailSentAt) {
+        if (app.round1Decision === "SHORTLIST") sentShortlist++;
+        else if (app.round1Decision === "REJECT") sentReject++;
+      } else {
+        if (app.round1Decision === "SHORTLIST") pendingShortlist++;
+        else if (app.round1Decision === "REJECT") pendingReject++;
+        else undecided++;
+      }
+    });
+
+    return { undecided, pendingShortlist, pendingReject, sentShortlist, sentReject };
+  },
+
+  async getRound1Templates(decision?: string): Promise<any> {
+    await new Promise((r) => setTimeout(r, 80));
+    const templates = {
+      SHORTLIST: {
+        decision: "SHORTLIST",
+        subject: "TAM Recruitment: Shortlisted for Interview - {{division}}",
+        body: "Dear {{name}},\n\nCongratulations! We are pleased to invite you to a 15-minute online interview for the {{division}} team.\n\nPlease sign in to {{site_url}} to choose your preferred interview slot at your earliest convenience.\n\nBest regards,\nTAM Recruitment Team",
+      },
+      REJECT: {
+        decision: "REJECT",
+        subject: "TAM Recruitment: Application Status Update - {{division}}",
+        body: "Dear {{name}},\n\nThank you for applying to the {{division}} team at The AI & ML Club, IIT Roorkee. We enjoyed reviewing your dossier.\n\nAfter careful evaluation, we are unable to take your application forward to the interview stage this recruitment cycle. We encourage you to participate in our open workshops and apply again next term.\n\nWarm regards,\nTAM Recruitment Team",
+      },
+    };
+    if (decision === "SHORTLIST") return templates.SHORTLIST;
+    if (decision === "REJECT") return templates.REJECT;
+    return templates;
+  },
+
+  async sendRound1Emails(payload: {
+    domain: string;
+    decision: "SHORTLIST" | "REJECT";
+    subject: string;
+    body: string;
+    limit?: number;
+  }): Promise<{ processed: number; sent: number; failed: any[]; remaining: number }> {
+    await new Promise((r) => setTimeout(r, 400));
+    const store = loadStore();
+    const batchLimit = Math.min(Number(payload.limit) || 20, 50);
+
+    const candidates = store.applications.filter(
+      (app: any) =>
+        (payload.domain === "ALL" || app.domain === payload.domain) &&
+        app.submittedAt &&
+        (app.stage === "FORM_FILLING" || app.stage === "SHORTLISTED" || app.stage === "REJECTED") &&
+        app.round1Decision === payload.decision &&
+        !app.round1EmailSentAt
+    );
+
+    const toProcess = candidates.slice(0, batchLimit);
+    toProcess.forEach((app: any) => {
+      app.stage = payload.decision === "SHORTLIST" ? "SHORTLISTED" : "REJECTED";
+      app.round1EmailSentAt = new Date().toISOString();
+    });
+
+    saveStore(store);
+
+    return {
+      processed: toProcess.length,
+      sent: toProcess.length,
+      failed: [],
+      remaining: Math.max(0, candidates.length - toProcess.length),
     };
   },
 };

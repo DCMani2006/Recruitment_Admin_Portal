@@ -386,3 +386,174 @@ h4 .num,
     scroll-behavior: auto !important;
   }
 }
+
+/* Accessibility Skip Link */
+.skip-link {
+  position: absolute;
+  top: -9999px;
+  left: 1rem;
+  background-color: var(--ink);
+  color: var(--paper);
+  padding: 0.5rem 1rem;
+  font-family: var(--font-label);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  text-decoration: none;
+  z-index: 99999;
+  border: 2px solid var(--paper);
+}
+
+.skip-link:focus {
+  top: 1rem;
+}
+
+/* Mobile Input Zoom Prevention (>=16px on mobile) */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea,
+  .newspaper-input,
+  .newspaper-textarea,
+  .newspaper-select {
+    font-size: 16px !important;
+  }
+}
+
+/* Responsive Shell Nav & Top Bar */
+.mobile-nav-toggle-btn {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-nav-toggle-btn {
+    display: inline-block !important;
+  }
+  .admin-desktop-desk-tag {
+    display: none !important;
+  }
+  .admin-section-nav {
+    display: flex !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+    padding-bottom: 4px !important;
+  }
+  .admin-section-nav::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Responsive Table Cards (Phone Optimisation) */
+@media (max-width: 768px) {
+  .classified-table,
+  .classified-table thead,
+  .classified-table tbody,
+  .classified-table th,
+  .classified-table td,
+  .classified-table tr {
+    display: block !important;
+  }
+  .classified-table thead tr {
+    position: absolute !important;
+    top: -9999px !important;
+    left: -9999px !important;
+  }
+  .classified-table tr.classified-row {
+    border: 1.5px solid var(--ink) !important;
+    margin-bottom: 0.85rem !important;
+    padding: 0.85rem 1rem !important;
+    background-color: var(--paper) !important;
+    box-shadow: 2px 2px 0px rgba(0,0,0,0.15) !important;
+  }
+  .classified-table td {
+    border: none !important;
+    padding: 0.35rem 0 !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    white-space: normal !important;
+  }
+  .classified-table td::before {
+    content: attr(data-label);
+    font-family: var(--font-label);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink-soft);
+    margin-right: 0.5rem;
+    font-weight: 700;
+  }
+  .classified-table td[data-label="Action"] {
+    justify-content: flex-end !important;
+    margin-top: 0.5rem !important;
+    border-top: 1px dotted var(--ink-soft) !important;
+    padding-top: 0.5rem !important;
+  }
+  .classified-table td[data-label="Action"]::before {
+    display: none;
+  }
+}
+
+/* Review Desk Responsive Grid & Sticky Bar */
+.mobile-review-sticky-bar {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .review-desk-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .review-desk-aside {
+    position: static !important;
+    top: auto !important;
+  }
+  .mobile-review-sticky-bar {
+    display: block !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    background-color: var(--paper) !important;
+    border-top: 2px solid var(--ink) !important;
+    padding: 0.65rem 1rem calc(0.65rem + env(safe-area-inset-bottom, 0px)) 1rem !important;
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.2) !important;
+    z-index: 9999 !important;
+  }
+}
+
+/* Bottom Sheet Modal on Mobile */
+@media (max-width: 640px) {
+  .modal-overlay {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+  .modal-dialog {
+    max-width: 100% !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: none !important;
+    border-top: 2px solid var(--ink) !important;
+    padding: 1.25rem 1rem calc(1.25rem + env(safe-area-inset-bottom, 0px)) 1rem !important;
+    animation: bottomSheetSlide 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+  }
+}
+
+@keyframes bottomSheetSlide {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* Slot Planner Grid */
+@media (max-width: 900px) {
+  .slot-planner-grid {
+    grid-template-columns: 1fr !important;
+  }
+}

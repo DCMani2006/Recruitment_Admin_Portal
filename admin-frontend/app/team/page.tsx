@@ -28,7 +28,7 @@ interface ParsedEmail {
 
 export default function TeamPage() {
   return (
-    <AuthGuard>
+    <AuthGuard requireRoot={true}>
       <AdminShell>
         <TeamWrapper />
       </AdminShell>
@@ -63,6 +63,10 @@ function TeamWrapper() {
 
 function TeamManagementContent() {
   const { showToast } = useToast();
+
+  useEffect(() => {
+    document.title = "The Masthead · The TAM Times Admin";
+  }, []);
 
   const [rawEmails, setRawEmails] = useState("");
   const [selectedDomain, setSelectedDomain] = useState<DomainEnum>("TECHNICAL");
@@ -194,20 +198,6 @@ function TeamManagementContent() {
     }
   };
 
-  // Invitation message text
-  const invitationMessage = `You have been appointed Domain Head for ${DOMAIN_LABELS[selectedDomain]} at The TAM Times.\n\nPlease visit ${typeof window !== "undefined" ? window.location.origin : "http://localhost:3001"}/login, select "First-time setup", and claim your editorial account using your registered email address.`;
-
-  const copyInvitation = async () => {
-    try {
-      if (navigator.clipboard) {
-        await navigator.clipboard.writeText(invitationMessage);
-        showToast("Invitation message copied to clipboard.", "info");
-      }
-    } catch {
-      showToast("Could not copy message.", "error");
-    }
-  };
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
       {/* Header section */}
@@ -221,8 +211,8 @@ function TeamManagementContent() {
         </p>
       </div>
 
-      {/* Two Column: Form (Left) & Onboarding Protocol (Right) */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: "1.5rem" }}>
+      {/* Appointment Section */}
+      <div>
         {/* ADD DOMAIN HEADS FORM */}
         <form
           onSubmit={handleAssignSubmit}
@@ -360,59 +350,6 @@ function TeamManagementContent() {
             </div>
           )}
         </form>
-
-        {/* ONBOARDING PROTOCOL EXPLANATION CARD */}
-        <div
-          className="paper"
-          style={{
-            border: "2px solid var(--ink)",
-            padding: "1.25rem 1.5rem",
-            backgroundColor: "rgba(28, 22, 19, 0.02)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "1rem",
-          }}
-        >
-          <div style={{ borderBottom: "1px solid var(--ink)", paddingBottom: "0.4rem" }}>
-            <span className="kicker" style={{ marginBottom: "0.15rem" }}>✦ ONBOARDING PROTOCOL ✦</span>
-            <h3 style={{ fontFamily: "var(--font-headline)", fontSize: "1.4rem", margin: 0, textTransform: "uppercase" }}>
-              Account Claim Instructions
-            </h3>
-          </div>
-
-          <p style={{ fontFamily: "var(--font-body)", fontSize: "1.05rem", lineHeight: 1.4, margin: 0 }}>
-            Appointed editors are registered by email address. They open the sign-in page and choose{" "}
-            <strong>First-time setup</strong> to claim their account.
-          </p>
-
-          <div style={{ border: "1px solid var(--ink)", padding: "0.75rem", backgroundColor: "var(--paper)" }}>
-            <div style={{ fontFamily: "var(--font-label)", fontSize: "0.72rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.3rem", color: "var(--ink-soft)" }}>
-              Invitation Notice Template
-            </div>
-            <pre
-              style={{
-                fontFamily: "var(--font-label)",
-                fontSize: "0.78rem",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                margin: 0,
-                color: "var(--ink)",
-                lineHeight: 1.4,
-              }}
-            >
-              {invitationMessage}
-            </pre>
-          </div>
-
-          <button
-            type="button"
-            onClick={copyInvitation}
-            className="ink-btn-secondary"
-            style={{ fontSize: "0.78rem", alignSelf: "flex-start" }}
-          >
-            Copy Invitation Message
-          </button>
-        </div>
       </div>
 
       {/* THE MASTHEAD ROSTER */}

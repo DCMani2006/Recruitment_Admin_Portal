@@ -31,6 +31,7 @@ export function ConfirmModal({
     <div
       role="dialog"
       aria-modal="true"
+      className="modal-overlay"
       style={{
         position: "fixed",
         inset: 0,
@@ -47,7 +48,7 @@ export function ConfirmModal({
       }}
     >
       <div
-        className="paper"
+        className="paper modal-dialog"
         style={{
           width: "100%",
           maxWidth: "480px",

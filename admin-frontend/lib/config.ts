@@ -6,10 +6,10 @@ export const BACKEND_URL =
   process.env.BACKEND_URL ||
   "http://localhost:5001";
 
-// Flags per ADMIN_SPEC section 4: true in mock mode, false in real mode until backend endpoints land
-export const SLOT_DELETE_SUPPORTED = IS_MOCK ? true : false;
-export const FORM_EDIT_SUPPORTED = IS_MOCK ? true : false;
-export const TEAM_LIST_SUPPORTED = IS_MOCK ? true : false;
+// Endpoints have landed on both mock and real backend
+export const SLOT_DELETE_SUPPORTED = true;
+export const FORM_EDIT_SUPPORTED = true;
+export const TEAM_LIST_SUPPORTED = true;
 
 // Round 2 maximum marks
 export const REVIEW2_MAX = 10;

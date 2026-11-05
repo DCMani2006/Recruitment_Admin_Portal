@@ -62,7 +62,7 @@ export const adminApi = {
   },
 
   async getApplication(applicationId: string): Promise<Application> {
-    // TODO: Switch to GET /api/admin/applications/:id once Prompt E lands on backend
+    // Queries applicants dataset for application record by identifier
     const all = await this.getApplicants("ALL");
     const found = all.find((a) => a.id === applicationId);
     if (!found) {
@@ -146,6 +146,15 @@ export const adminApi = {
     return handleResponse<{ success: boolean; message: string }>(res);
   },
 
+  async updateSlot(slotId: string, payload: { meetingLink?: string }): Promise<Slot> {
+    const res = await fetch(`/api/admin/slots/${encodeURIComponent(slotId)}`, {
+      method: "PATCH",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+    return handleResponse<Slot>(res);
+  },
+
   async updateQuestion(id: string, payload: Partial<Question>): Promise<Question> {
     const res = await fetch(`/api/admin/form/question/${encodeURIComponent(id)}`, {
       method: "PUT",
@@ -197,5 +206,42 @@ export const adminApi = {
       body: JSON.stringify({ emails, domain }),
     });
     return handleResponse<{ message: string; assignedEmails: string[]; alreadyExisting?: string[] }>(res);
+  },
+
+  async getRound1Summary(domain?: string): Promise<{
+    undecided: number;
+    pendingShortlist: number;
+    pendingReject: number;
+    sentShortlist: number;
+    sentReject: number;
+  }> {
+    const query = domain && domain !== "ALL" ? `?domain=${encodeURIComponent(domain)}` : "";
+    const res = await fetch(`/api/admin/round1/summary${query}`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  async getRound1Templates(decision?: string): Promise<any> {
+    const query = decision ? `?decision=${encodeURIComponent(decision)}` : "";
+    const res = await fetch(`/api/admin/round1/templates${query}`, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  async sendRound1Emails(payload: {
+    domain: string;
+    decision: "SHORTLIST" | "REJECT";
+    subject: string;
+    body: string;
+    limit?: number;
+  }): Promise<{ processed: number; sent: number; failed: any[]; remaining: number }> {
+    const res = await fetch(`/api/admin/round1/send`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+    return handleResponse(res);
   },
 };

@@ -1,16 +1,24 @@
 import { Router } from 'express';
-import { 
+import {
   setupAdminAccount,
   loginAdmin,
-  getAllApplicants, 
-  getApplicantById, 
+  getAllApplicants,
+  getApplicantById,
   updateApplicantReview,
   createInterviewSlots,
+  deleteSlot,
   getMySchedule,
   assignDomainHead,
-  createSubsection, 
+  createSubsection,
+  updateSubsection,
+  deleteSubsection,
   createQuestion,
-  getDomainForm
+  updateQuestion,
+  deleteQuestion,
+  getDomainForm,
+  getRound1Summary,
+  getRound1Templates,
+  sendRound1Emails,
 } from '../controllers/adminController';
 import { authorizeRole, verifyToken } from '../middleware/authMiddleware';
 
@@ -25,14 +33,25 @@ router.get('/applicants', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getAllAp
 router.get('/applicants/:id', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getApplicantById);
 router.put('/applicants/:applicationId/review', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), updateApplicantReview);
 
-// Domain Heads create their slots and view their schedules
+// Domain Heads create their slots, delete slots, and view their schedules
 router.post('/slots', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), createInterviewSlots);
+router.delete('/slots/:id', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), deleteSlot);
 router.get('/schedule/:adminId', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getMySchedule);
 
 // Domain Heads build and view their domain's application form
 router.get('/form', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getDomainForm);
 router.post('/form/subsection', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), createSubsection);
+router.put('/form/subsection/:id', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), updateSubsection);
+router.delete('/form/subsection/:id', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), deleteSubsection);
+
 router.post('/form/question', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), createQuestion);
+router.put('/form/question/:id', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), updateQuestion);
+router.delete('/form/question/:id', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), deleteQuestion);
+
+// Round 1 Decisions & Email Workflow
+router.get('/round1/summary', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getRound1Summary);
+router.get('/round1/templates', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getRound1Templates);
+router.post('/round1/send', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), sendRound1Emails);
 
 // Only the Root Admin can assign new Domain Heads
 router.post('/domain-heads', authorizeRole(['ROOT_ADMIN']), assignDomainHead);

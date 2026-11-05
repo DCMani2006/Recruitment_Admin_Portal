@@ -13,18 +13,23 @@ export function AuthGuard({
 }) {
   const { user, loading, isAuthenticated } = useAuth();
   const router = useRouter();
+  const [mounted, setMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
-    if (!loading) {
+    if (mounted && !loading) {
       if (!isAuthenticated) {
-        router.push("/login");
+        router.replace("/login");
       } else if (requireRoot && user?.role !== "ROOT_ADMIN") {
-        router.push("/?msg=unauthorized_desk");
+        router.replace("/?msg=unauthorized_desk");
       }
     }
-  }, [loading, isAuthenticated, requireRoot, user, router]);
+  }, [mounted, loading, isAuthenticated, requireRoot, user, router]);
 
-  if (loading) {
+  if (!mounted || loading) {
     return (
       <div
         style={{

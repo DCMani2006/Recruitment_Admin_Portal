@@ -61,6 +61,18 @@ export const ALLOWED_STAGE_MOVES: Record<ApplicationStage, ApplicationStage[]> =
   REJECTED: [],
 };
 
+export function getDisplayStage(app?: {
+  stage: ApplicationStage;
+  round1Decision?: "SHORTLIST" | "REJECT" | null;
+} | null): ApplicationStage {
+  if (!app) return "FORM_FILLING";
+  if (app.stage === "FORM_FILLING") {
+    if (app.round1Decision === "SHORTLIST") return "SHORTLISTED";
+    if (app.round1Decision === "REJECT") return "REJECTED";
+  }
+  return app.stage;
+}
+
 export interface AdminUser {
   id: string;
   email: string;
@@ -132,6 +144,7 @@ export interface Slot {
   startTime: string; // ISO
   endTime: string;   // ISO
   capacity?: number;
+  bookedCount?: number;
   bookings?: Booking[];
 }
 
@@ -155,6 +168,8 @@ export interface Booking {
       phone: string;
       regNumber: string;
     };
+    review2Marks?: number | null;
+    review2Comments?: string | null;
   };
 }
 
@@ -169,6 +184,9 @@ export interface Application {
   review2Marks?: number | null;
   review2Comments?: string | null;
   review2Passed?: boolean | null;
+  round1Decision?: "SHORTLIST" | "REJECT" | null;
+  round1DecisionAt?: string | null;
+  round1EmailSentAt?: string | null;
   userId: string;
   user: ApplicantUser;
   booking?: Booking | null;
@@ -176,6 +194,7 @@ export interface Application {
 
 export interface ReviewPayload {
   stage?: ApplicationStage;
+  round1Decision?: "SHORTLIST" | "REJECT" | null;
   review1Marks?: number;
   review1Comments?: string;
   review1Passed?: boolean;

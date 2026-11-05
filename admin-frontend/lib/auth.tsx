@@ -1,8 +1,8 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { useRouter, usePathname } from "next/navigation";
-import { AdminUser, AdminRole, DomainEnum, AuthResponse } from "./types";
+import { useRouter } from "next/navigation";
+import { AdminUser, AuthResponse } from "./types";
 import { api } from "./client";
 
 interface AuthContextType {
@@ -27,26 +27,21 @@ export const DEFAULT_TOKEN = "mock-jwt-token-admin-root";
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AdminUser | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const router = useRouter();
-  const pathname = usePathname();
-
-  useEffect(() => {
+  const [user, setUser] = useState<AdminUser | null>(() => {
+    if (typeof window === "undefined") return null;
     try {
-      const storedToken = localStorage.getItem("admin_token");
-      const storedUser = localStorage.getItem("admin_user");
-      if (storedToken && storedUser) {
-        setToken(storedToken);
-        setUser(JSON.parse(storedUser));
-      }
-    } catch (e) {
-      console.error("Failed to parse stored auth", e);
-    } finally {
-      setLoading(false);
+      const stored = localStorage.getItem("admin_user");
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
     }
-  }, []);
+  });
+  const [token, setToken] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem("admin_token");
+  });
+  const [loading] = useState(false);
+  const router = useRouter();
 
   const saveAuth = (authRes: AuthResponse) => {
     const adminUser: AdminUser = {

@@ -15,16 +15,17 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { label: "Overview", href: "/" },
+  { label: "Question Desk", href: "/form-builder" },
   { label: "Applicant Listings", href: "/applicants" },
   { label: "Interview Ledger", href: "/interviews" },
   { label: "Slot Planner", href: "/slots" },
-  { label: "Question Desk", href: "/form-builder" },
   { label: "The Masthead (Team)", href: "/team", rootOnly: true },
 ];
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
+  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
   const isRoot = user?.role === "ROOT_ADMIN";
   const domainLabel = user?.domain ? DOMAIN_LABELS[user.domain] : "All Divisions";
@@ -37,25 +38,31 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   return (
     <div
       style={{
-        minHeight: "100vh",
+        minHeight: "100dvh",
         backgroundColor: "#14100E",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        padding: "32px 24px",
+        padding: "clamp(16px, 3vh, 32px) clamp(12px, 2vw, 24px)",
+        paddingBottom: "calc(clamp(16px, 3vh, 32px) + env(safe-area-inset-bottom, 0px))",
         boxSizing: "border-box",
       }}
     >
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+
       {/* Main broadsheet container - Capped at 1280px and centered */}
       <main
+        id="main-content"
         className="paper"
         style={{
           width: "100%",
           maxWidth: "1280px",
-          minHeight: "calc(100vh - 64px)",
+          minHeight: "calc(100dvh - 64px)",
           display: "flex",
           flexDirection: "column",
-          padding: "1.5rem 2rem",
+          padding: "1.5rem clamp(1rem, 2.5vw, 2rem)",
           boxShadow: "0 12px 40px rgba(0,0,0,0.7), 0 0 0 1px #2a201c",
           position: "relative",
           boxSizing: "border-box",
@@ -73,9 +80,11 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             justifyContent: "space-between",
             padding: "0.25rem 0 0.5rem 0",
             borderBottom: "1px solid var(--ink)",
+            flexWrap: "wrap",
+            gap: "0.5rem",
           }}
         >
-          <div style={{ display: "flex", alignItems: "baseline", gap: "1rem" }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: "1rem", flexWrap: "wrap" }}>
             <span
               style={{
                 fontFamily: "var(--font-masthead)",
@@ -101,6 +110,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
             <span
+              className="admin-desktop-desk-tag"
               style={{
                 fontFamily: "var(--font-headline)",
                 fontSize: "1.2rem",
@@ -109,17 +119,40 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                 textTransform: "uppercase",
               }}
             >
-              The Editor's Desk
+              The Editor&apos;s Desk
             </span>
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen((v) => !v)}
+              className="mobile-nav-toggle-btn"
+              aria-label="Toggle section menu"
+              aria-expanded={mobileMenuOpen}
+              style={{
+                background: "transparent",
+                border: "1px solid var(--ink)",
+                fontFamily: "var(--font-label)",
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.1em",
+                padding: "0.3rem 0.6rem",
+                cursor: "pointer",
+                color: "var(--ink)",
+              }}
+            >
+              {mobileMenuOpen ? "✕ Close" : "✦ Menu"}
+            </button>
           </div>
         </header>
 
         {/* 3. Section Nav (styled like newspaper section tabs) */}
         <nav
+          className={`admin-section-nav ${mobileMenuOpen ? "mobile-open" : ""}`}
           style={{
             display: "flex",
             flexWrap: "wrap",
-            gap: "0.25rem",
+            gap: "0.2rem",
+            rowGap: "0.35rem",
             marginTop: "0.5rem",
             marginBottom: "1.5rem",
             borderBottom: "2px solid var(--ink)",
@@ -135,10 +168,10 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                 href={item.href}
                 style={{
                   fontFamily: "var(--font-label)",
-                  fontSize: "0.82rem",
+                  fontSize: "0.76rem",
                   textTransform: "uppercase",
-                  letterSpacing: "0.12em",
-                  padding: "0.45rem 0.9rem",
+                  letterSpacing: "0.1em",
+                  padding: "0.4rem 0.65rem",
                   color: isActive ? "var(--paper)" : "var(--ink)",
                   backgroundColor: isActive ? "var(--ink)" : "transparent",
                   textDecoration: "none",
@@ -148,6 +181,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                   fontWeight: isActive ? 600 : 500,
                   transition: "all 0.15s ease",
                   display: "inline-block",
+                  whiteSpace: "nowrap",
                 }}
               >
                 {item.label}
@@ -215,6 +249,20 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               >
                 SIGN OUT
               </button>
+            )}
+            {process.env.NEXT_PUBLIC_BUILD_DISPLAY && (
+              <span
+                style={{
+                  fontFamily: "var(--font-mono, monospace)",
+                  fontSize: "0.65rem",
+                  letterSpacing: "0.05em",
+                  color: "var(--ink-soft)",
+                  opacity: 0.8,
+                  marginLeft: "auto",
+                }}
+              >
+                {process.env.NEXT_PUBLIC_BUILD_DISPLAY}
+              </span>
             )}
           </div>
         </footer>

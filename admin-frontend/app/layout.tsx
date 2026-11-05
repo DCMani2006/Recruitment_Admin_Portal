@@ -6,6 +6,10 @@ import { ToastProvider } from "@/components/TickerToast";
 export const metadata: Metadata = {
   title: "The TAM Times — The Editor's Desk",
   description: "Recruitment Administration Portal for Domain Heads and Root Admin",
+  robots: {
+    index: false, // noindex
+    follow: false,
+  },
 };
 
 export default function RootLayout({
@@ -15,7 +19,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <meta name="build-id" content={process.env.NEXT_PUBLIC_BUILD_ID || ""} />
+      </head>
       <body>
+        <a href="#main-content" className="skip-link">Skip to main content</a>
         <AuthProvider>
           <ToastProvider>{children}</ToastProvider>
         </AuthProvider>

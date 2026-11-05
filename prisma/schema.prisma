@@ -22,6 +22,7 @@ enum Role {
 }
 
 // 1 form filling, 2 shortlisted, 3 slot choosing, 4 interview, 5 selected
+
 enum Stage {
   FORM_FILLING
   SHORTLISTED
@@ -29,6 +30,11 @@ enum Stage {
   INTERVIEW
   SELECTED
   REJECTED
+}
+
+enum Round1Decision {
+  SHORTLIST
+  REJECT
 }
 
 enum EmailType {
@@ -46,13 +52,13 @@ enum EmailStatus {
 }
 
 model Admin {
-  id           String     @id @default(auto()) @map("_id") @db.ObjectId
+  id           String      @id @default(auto()) @map("_id") @db.ObjectId
   name         String?
-  email        String     @unique
+  email        String      @unique
   password     String?
-  role         Role       @default(DOMAIN_HEAD)
+  role         Role        @default(DOMAIN_HEAD)
   domain       DomainType?
-  slotsCreated Slot[]     @relation("AdminSlots")
+  slotsCreated Slot[]      @relation("AdminSlots")
 }
 
 model User {
@@ -62,7 +68,7 @@ model User {
   phone        String
   regNumber    String        @unique
   image        String?
-  passwordHash String?       // bcrypt hash, set at sign up
+  passwordHash String? // bcrypt hash, set at sign up
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   answers      Answer[]
@@ -71,21 +77,24 @@ model User {
 
 // One row per candidate per domain
 model Application {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  id          String     @id @default(auto()) @map("_id") @db.ObjectId
   domain      DomainType
-  stage       Stage    @default(FORM_FILLING)
+  stage       Stage      @default(FORM_FILLING)
   submittedAt DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime   @default(now())
 
-  review1Marks    Int?
-  review1Comments String?
-  review1Passed   Boolean @default(false)
-  review2Marks    Int?
-  review2Comments String?
-  review2Passed   Boolean @default(false)
+  review1Marks      Int?
+  review1Comments   String?
+  review1Passed     Boolean         @default(false)
+  review2Marks      Int?
+  review2Comments   String?
+  review2Passed     Boolean         @default(false)
+  round1Decision    Round1Decision?
+  round1DecisionAt  DateTime?
+  round1EmailSentAt DateTime?
 
-  userId  String   @db.ObjectId
-  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId  String       @db.ObjectId
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   booking SlotBooking?
   emails  EmailLog[]
 

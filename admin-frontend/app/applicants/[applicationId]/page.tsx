@@ -7,7 +7,6 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { AdminShell } from "@/components/AdminShell";
 import { StageStamp } from "@/components/StageStamp";
 import { FiveStepTracker } from "@/components/FiveStepTracker";
-import { StampAnimation } from "@/components/StampAnimation";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Num } from "@/components/Num";
 import { Skeleton } from "@/components/Skeleton";
@@ -22,6 +21,7 @@ import {
   ApplicationStage,
   DOMAIN_LABELS,
   STAGE_LABELS,
+  getDisplayStage,
 } from "@/lib/types";
 import { formatDate, formatDateTime, formatTime, REVIEW2_MAX } from "@/lib/config";
 
@@ -69,18 +69,20 @@ function ReviewDeskContent() {
   const [showUnsavedModal, setShowUnsavedModal] = useState(false);
 
   // Decision Modal States
-  const [showShortlistModal, setShowShortlistModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showSendBackModal, setShowSendBackModal] = useState(false);
   const [showSelectModal, setShowSelectModal] = useState(false);
   const [rejectCommentsError, setRejectCommentsError] = useState<string | null>(null);
 
-  // Stamp slam animation
-  const [activeStampAnimation, setActiveStampAnimation] = useState<ApplicationStage | null>(null);
+  // Stamp slam animation removed per F3b
 
   // Session list for Previous / Next navigation
   const [sessionList, setSessionList] = useState<string[]>([]);
   const currentIndexInSession = sessionList.indexOf(applicationId);
+
+  useEffect(() => {
+    document.title = "Candidate Review · The TAM Times Admin";
+  }, []);
 
   // Load session list from sessionStorage or fallback to getApplicants
   useEffect(() => {
@@ -179,6 +181,16 @@ function ReviewDeskContent() {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
+  // Safe navigation helper with guard
+  const navigateWithGuard = (url: string) => {
+    if (hasUnsavedChanges) {
+      setPendingNavigationUrl(url);
+      setShowUnsavedModal(true);
+    } else {
+      router.push(url);
+    }
+  };
+
   // Keyboard navigation: Left/Right arrows (when not typing)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -206,16 +218,6 @@ function ReviewDeskContent() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [currentIndexInSession, sessionList, hasUnsavedChanges]);
-
-  // Safe navigation helper with guard
-  const navigateWithGuard = (url: string) => {
-    if (hasUnsavedChanges) {
-      setPendingNavigationUrl(url);
-      setShowUnsavedModal(true);
-    } else {
-      router.push(url);
-    }
-  };
 
   // Filter user's answers to strictly this application's domain
   const relevantAnswers = useMemo(() => {
@@ -285,9 +287,9 @@ function ReviewDeskContent() {
       review2Marks?: number;
       review2Comments?: string;
       review2Passed?: boolean;
+      round1Decision?: "SHORTLIST" | "REJECT" | null;
     },
-    successMessage: string,
-    stampType?: ApplicationStage
+    successMessage: string
   ) => {
     if (!application || submitting) return;
     setSubmitting(true);
@@ -301,6 +303,17 @@ function ReviewDeskContent() {
         marks: marksMap[a.id] ?? 0,
       }));
 
+    // Optimistic update so UI shifts immediately
+    setApplication((prev) =>
+      prev
+        ? {
+            ...prev,
+            ...payload,
+            round1DecisionAt: payload.round1Decision ? new Date().toISOString() : prev.round1DecisionAt,
+          }
+        : null
+    );
+
     try {
       const updated = await api.updateReview(application.id, {
         ...payload,
@@ -311,13 +324,16 @@ function ReviewDeskContent() {
       setInitialMarksMap(marksMap);
       setHasUnsavedChanges(false);
       showToast(successMessage, "success");
-
-      if (stampType) {
-        setActiveStampAnimation(stampType);
-      }
     } catch (err: any) {
       const errMsg = err.message || "";
-      if (errMsg.includes("INVALID_STAGE_CHANGE")) {
+      if (err.code === "DECISION_LOCKED" || errMsg.includes("DECISION_LOCKED")) {
+        showToast("Round 1 review is locked because decision emails have already been dispatched.", "error");
+        await loadApplication();
+      } else if (err.code === "USE_DECISION_FLOW" || errMsg.includes("USE_DECISION_FLOW")) {
+        showToast("Stage changes from FORM_FILLING must go through the decision and email workflow.", "error");
+      } else if (err.code === "INTERVIEW_NOT_DONE" || errMsg.includes("INTERVIEW_NOT_DONE")) {
+        showToast("Interview marks can only be entered after the candidate's interview slot has ended.", "error");
+      } else if (errMsg.includes("INVALID_STAGE_CHANGE")) {
         showToast("The status changed elsewhere, showing the updated one.", "error");
         await loadApplication();
       } else if (errMsg.includes("NOT_SUBMITTED")) {
@@ -340,61 +356,45 @@ function ReviewDeskContent() {
 
   // Round 1 Handlers
   const handleSaveDraftR1 = () => {
+    setRejectCommentsError(null);
     executeReviewDecision(
       {
+        round1Decision: null,
         review1Marks: currentTotalMarks,
         review1Comments,
       },
-      "Draft marks and comments saved."
+      "Draft evaluation saved (without decision)."
     );
   };
 
-  const handleConfirmShortlist = () => {
-    setShowShortlistModal(false);
+  const handleMarkToShortlist = () => {
+    setRejectCommentsError(null);
     executeReviewDecision(
       {
-        stage: "SHORTLISTED",
+        round1Decision: "SHORTLIST",
         review1Marks: currentTotalMarks,
         review1Comments,
         review1Passed: true,
       },
-      "Candidate shortlisted for interview round.",
-      "SHORTLISTED"
+      "Marked to shortlist (email not sent yet)."
     );
   };
 
-  const handleConfirmReject = () => {
-    const comment = application?.stage === "INTERVIEW" ? review2Comments : review1Comments;
-    if (!comment || comment.trim().length < 10) {
-      setRejectCommentsError("A reason of at least 10 characters is required for rejection.");
+  const handleMarkToReject = () => {
+    if (!review1Comments || review1Comments.trim().length < 10) {
+      setRejectCommentsError("A comment of at least 10 characters is required to mark for rejection.");
       return;
     }
     setRejectCommentsError(null);
-    setShowRejectModal(false);
-
-    if (application?.stage === "INTERVIEW") {
-      executeReviewDecision(
-        {
-          stage: "REJECTED",
-          review2Marks,
-          review2Comments,
-          review2Passed: false,
-        },
-        "Application marked as not taken forward.",
-        "REJECTED"
-      );
-    } else {
-      executeReviewDecision(
-        {
-          stage: "REJECTED",
-          review1Marks: currentTotalMarks,
-          review1Comments,
-          review1Passed: false,
-        },
-        "Application marked as not taken forward.",
-        "REJECTED"
-      );
-    }
+    executeReviewDecision(
+      {
+        round1Decision: "REJECT",
+        review1Marks: currentTotalMarks,
+        review1Comments,
+        review1Passed: false,
+      },
+      "Marked to reject (email not sent yet)."
+    );
   };
 
   const handleMarkSlotChoosing = () => {
@@ -418,8 +418,25 @@ function ReviewDeskContent() {
         review2Comments,
         review2Passed: true,
       },
-      "Candidate officially selected!",
-      "SELECTED"
+      "Candidate officially selected!"
+    );
+  };
+
+  const handleConfirmRejectRound2 = () => {
+    if (!review2Comments || review2Comments.trim().length < 10) {
+      setRejectCommentsError("A comment of at least 10 characters is required for rejection.");
+      return;
+    }
+    setRejectCommentsError(null);
+    setShowRejectModal(false);
+    executeReviewDecision(
+      {
+        stage: "REJECTED",
+        review2Marks,
+        review2Comments,
+        review2Passed: false,
+      },
+      "Application marked as not taken forward."
     );
   };
 
@@ -509,9 +526,6 @@ function ReviewDeskContent() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-      {/* Stamp Animation Overlay */}
-      <StampAnimation stage={activeStampAnimation} onComplete={() => setActiveStampAnimation(null)} />
-
       {/* Top Breadcrumb & Session Navigation */}
       <div
         style={{
@@ -603,7 +617,17 @@ function ReviewDeskContent() {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.5rem" }}>
-            <StageStamp stage={application.stage} size="lg" />
+            <StageStamp stage={getDisplayStage(application)} size="lg" />
+            {application.stage === "FORM_FILLING" && application.round1Decision === "SHORTLIST" && !application.round1EmailSentAt && (
+              <span style={{ fontSize: "0.75rem", fontFamily: "var(--font-label)", textTransform: "uppercase", color: "var(--stamp)", letterSpacing: "0.06em", fontWeight: 700 }}>
+                Marked to Shortlist (unmailed)
+              </span>
+            )}
+            {application.stage === "FORM_FILLING" && application.round1Decision === "REJECT" && !application.round1EmailSentAt && (
+              <span style={{ fontSize: "0.75rem", fontFamily: "var(--font-label)", textTransform: "uppercase", color: "var(--stamp)", letterSpacing: "0.06em", fontWeight: 700 }}>
+                Marked to Reject (unmailed)
+              </span>
+            )}
             {nextWaitingId && (
               <button
                 type="button"
@@ -618,11 +642,12 @@ function ReviewDeskContent() {
         </div>
 
         {/* 5-Step Tracker */}
-        <FiveStepTracker stage={application.stage} />
+        <FiveStepTracker stage={getDisplayStage(application)} />
       </header>
 
       {/* Main Two-Column Review Desk Layout */}
       <div
+        className="review-desk-grid"
         style={{
           display: "grid",
           gridTemplateColumns: "1fr 340px",
@@ -862,7 +887,7 @@ function ReviewDeskContent() {
         </section>
 
         {/* Right Sticky Column: Round 1 / Round 2 Review Panels & Booking Card */}
-        <aside style={{ display: "flex", flexDirection: "column", gap: "1.25rem", position: "sticky", top: "1rem" }}>
+        <aside className="review-desk-aside" style={{ display: "flex", flexDirection: "column", gap: "1.25rem", position: "sticky", top: "1rem" }}>
           {/* Booking Card if Stage is INTERVIEW */}
           {isInterview && slot && (
             <div
@@ -888,7 +913,7 @@ function ReviewDeskContent() {
                   <a
                     href={slot.meetingLink}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     className="stamp-btn"
                     style={{ flex: 1, textAlign: "center", textDecoration: "none", fontSize: "0.75rem", padding: "0.4rem 0.5rem" }}
                   >
@@ -919,24 +944,35 @@ function ReviewDeskContent() {
               <h3 style={{ fontFamily: "var(--font-headline)", fontSize: "1.4rem", textTransform: "uppercase" }}>
                 Round 1 Review
               </h3>
-              {isInterview && (
-                <button
-                  type="button"
-                  onClick={() => setEditRound1(!editRound1)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    fontSize: "0.75rem",
-                    fontFamily: "var(--font-label)",
-                    textTransform: "uppercase",
-                    color: "var(--stamp)",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    textDecoration: "underline",
-                  }}
-                >
-                  {editRound1 ? "Lock" : "Edit Marks"}
-                </button>
+            </div>
+
+            {/* Status Line */}
+            <div
+              style={{
+                padding: "0.6rem 0.75rem",
+                border: "1px dashed var(--ink)",
+                backgroundColor: "var(--paper)",
+                fontSize: "0.82rem",
+                marginBottom: "0.85rem",
+                lineHeight: 1.4,
+              }}
+            >
+              {application.round1EmailSentAt ? (
+                <span style={{ color: "var(--ink)", fontWeight: 500 }}>
+                  Email sent on <Num>{formatDateTime(application.round1EmailSentAt)}</Num>. This decision is locked.
+                </span>
+              ) : application.round1Decision === "SHORTLIST" ? (
+                <span style={{ color: "var(--ink)" }}>
+                  Decision: <strong>marked to shortlist</strong>. The email has not been sent yet, so you can still change this.
+                </span>
+              ) : application.round1Decision === "REJECT" ? (
+                <span style={{ color: "var(--stamp)" }}>
+                  Decision: <strong>marked to reject</strong>. The email has not been sent yet, so you can still change this.
+                </span>
+              ) : (
+                <span style={{ color: "var(--ink-soft)" }}>
+                  Decision: <em>waiting for review</em>.
+                </span>
               )}
             </div>
 
@@ -983,8 +1019,7 @@ function ReviewDeskContent() {
               <textarea
                 id="r1Comments"
                 rows={4}
-                maxLength={1000}
-                disabled={(isInterview && !editRound1) || isFinalStage}
+                disabled={Boolean(application.round1EmailSentAt) || isFinalStage}
                 className="newspaper-textarea"
                 value={review1Comments}
                 onChange={(e) => {
@@ -994,13 +1029,18 @@ function ReviewDeskContent() {
                 style={{ resize: "vertical", fontSize: "0.92rem" }}
               />
               <div style={{ fontSize: "0.7rem", fontFamily: "var(--font-label)", textAlign: "right", color: "var(--ink-soft)" }}>
-                <Num>{review1Comments.length}</Num> / <Num>1000</Num>
+                <Num>{review1Comments.length}</Num> characters
               </div>
             </div>
 
             {/* Buttons Valid for Round 1 Only */}
-            {isFormFilling && (
+            {isFormFilling && !application.round1EmailSentAt && (
               <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                {rejectCommentsError && (
+                  <div style={{ color: "var(--stamp)", fontSize: "0.8rem", marginBottom: "0.25rem" }}>
+                    ✦ {rejectCommentsError}
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={handleSaveDraftR1}
@@ -1012,36 +1052,33 @@ function ReviewDeskContent() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowShortlistModal(true)}
+                  onClick={handleMarkToShortlist}
                   disabled={submitting}
-                  className="stamp-btn"
+                  className={application.round1Decision === "SHORTLIST" ? "ink-btn" : "stamp-btn"}
                   style={{ width: "100%", fontSize: "0.78rem" }}
                 >
-                  Shortlist Candidate
+                  {application.round1Decision === "SHORTLIST" ? "✓ Marked to Shortlist" : "Mark to Shortlist"}
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setRejectCommentsError(null); setShowRejectModal(true); }}
+                  onClick={handleMarkToReject}
                   disabled={submitting}
                   className="ink-btn-secondary"
-                  style={{ width: "100%", fontSize: "0.78rem", color: "var(--stamp)", borderColor: "var(--stamp)" }}
+                  style={{
+                    width: "100%",
+                    fontSize: "0.78rem",
+                    color: "var(--stamp)",
+                    borderColor: "var(--stamp)",
+                    fontWeight: application.round1Decision === "REJECT" ? 700 : 400,
+                  }}
                 >
-                  Reject
+                  {application.round1Decision === "REJECT" ? "✕ Marked to Reject" : "Mark to Reject"}
                 </button>
               </div>
             )}
 
             {isShortlisted && (
               <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                <button
-                  type="button"
-                  onClick={handleSaveDraftR1}
-                  disabled={submitting}
-                  className="ink-btn-secondary"
-                  style={{ width: "100%", fontSize: "0.78rem" }}
-                >
-                  Save Changes
-                </button>
                 <button
                   type="button"
                   onClick={handleMarkSlotChoosing}
@@ -1065,15 +1102,6 @@ function ReviewDeskContent() {
 
             {isSlotChoosing && (
               <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                <button
-                  type="button"
-                  onClick={handleSaveDraftR1}
-                  disabled={submitting}
-                  className="ink-btn-secondary"
-                  style={{ width: "100%", fontSize: "0.78rem" }}
-                >
-                  Save Changes
-                </button>
                 <button
                   type="button"
                   onClick={() => { setRejectCommentsError(null); setShowRejectModal(true); }}
@@ -1208,7 +1236,6 @@ function ReviewDeskContent() {
                 <textarea
                   id="r2Comments"
                   rows={4}
-                  maxLength={1000}
                   className="newspaper-textarea"
                   value={review2Comments}
                   onChange={(e) => {
@@ -1266,25 +1293,40 @@ function ReviewDeskContent() {
         </aside>
       </div>
 
-      {/* CONFIRM MODALS */}
-      {/* Shortlist Modal */}
-      <ConfirmModal
-        isOpen={showShortlistModal}
-        title="Shortlist Candidate"
-        message={`The candidate will be able to book an interview slot.${unmarkedCount > 0 ? ` Note: ${unmarkedCount} question(s) are still unmarked.` : ""}`}
-        confirmLabel="Confirm Shortlist"
-        onConfirm={handleConfirmShortlist}
-        onCancel={() => setShowShortlistModal(false)}
-      />
+      {/* Mobile Sticky Bottom Bar for Marks & Decisions */}
+      <div className="mobile-review-sticky-bar">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem" }}>
+          <div>
+            <span style={{ fontSize: "0.7rem", fontFamily: "var(--font-label)", textTransform: "uppercase", color: "var(--ink-soft)", letterSpacing: "0.08em" }}>
+              Total Score
+            </span>
+            <div style={{ fontFamily: "var(--font-headline)", fontSize: "1.25rem", lineHeight: 1, color: "var(--ink)" }}>
+              <Num>{currentTotalMarks}</Num> / <Num>{totalMaxMarks}</Num>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const aside = document.querySelector(".review-desk-aside");
+              if (aside) aside.scrollIntoView({ behavior: "smooth" });
+            }}
+            className="stamp-btn"
+            style={{ fontSize: "0.75rem", padding: "0.45rem 0.85rem", whiteSpace: "nowrap" }}
+          >
+            Review Decisions ➔
+          </button>
+        </div>
+      </div>
 
-      {/* Reject Modal */}
+      {/* CONFIRM MODALS */}
+      {/* Reject Modal (Round 2) */}
       <ConfirmModal
         isOpen={showRejectModal}
         title="Reject Application"
         message="The candidate will see that they were not taken forward. Any booked interview slot is released."
         confirmLabel="Confirm Rejection"
         isDestructive={true}
-        onConfirm={handleConfirmReject}
+        onConfirm={handleConfirmRejectRound2}
         onCancel={() => setShowRejectModal(false)}
       >
         {rejectCommentsError && (

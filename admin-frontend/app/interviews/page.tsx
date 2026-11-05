@@ -25,6 +25,8 @@ interface InterviewRowData {
   startTime: string;
   endTime: string;
   meetingLink: string;
+  review2Marks?: number | null;
+  review2Comments?: string | null;
 }
 
 export default function InterviewsPage() {
@@ -50,6 +52,44 @@ function InterviewLedgerContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Interview marks panel state
+  const [openMarksAppId, setOpenMarksAppId] = useState<string | null>(null);
+  const [marksValue, setMarksValue] = useState<number>(0);
+  const [commentsValue, setCommentsValue] = useState<string>("");
+  const [savingMarks, setSavingMarks] = useState<boolean>(false);
+
+  const toggleMarksPanel = (row: InterviewRowData) => {
+    if (openMarksAppId === row.applicationId) {
+      setOpenMarksAppId(null);
+    } else {
+      setOpenMarksAppId(row.applicationId);
+      setMarksValue(row.review2Marks ?? 0);
+      setCommentsValue(row.review2Comments ?? "");
+    }
+  };
+
+  const handleSaveMarks = async (applicationId: string) => {
+    setSavingMarks(true);
+    try {
+      await api.updateReview(applicationId, {
+        review2Marks: marksValue,
+        review2Comments: commentsValue,
+      });
+      showToast("Interview marks saved.", "success");
+      setOpenMarksAppId(null);
+      await loadSchedule();
+    } catch (err: any) {
+      const errMsg = err?.message || "";
+      showToast(errMsg || "Failed to save interview marks.", "error");
+    } finally {
+      setSavingMarks(false);
+    }
+  };
+
+  useEffect(() => {
+    document.title = "Interview Ledger · The TAM Times Admin";
+  }, []);
 
   useEffect(() => {
     if (!isRoot && userDomain) {
@@ -95,6 +135,8 @@ function InterviewLedgerContent() {
           startTime: s.startTime,
           endTime: s.endTime,
           meetingLink: s.meetingLink || "https://meet.google.com/tam-general",
+          review2Marks: app?.review2Marks,
+          review2Comments: app?.review2Comments,
         });
       });
     });
@@ -338,6 +380,8 @@ function InterviewLedgerContent() {
                   const startTimeStr = formatTime(row.startTime).replace(" IST", "");
                   const endTimeStr = formatTime(row.endTime);
                   const isCurrent = copiedId === row.booking.id;
+                  const hasMarks = row.review2Marks !== null && row.review2Marks !== undefined;
+                  const isPanelOpen = openMarksAppId === row.applicationId;
 
                   return (
                     <div
@@ -345,94 +389,99 @@ function InterviewLedgerContent() {
                       className="paper"
                       style={{
                         display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
+                        flexDirection: "column",
                         padding: "0.85rem 1.1rem",
                         border: "1px solid var(--ink)",
-                        flexWrap: "wrap",
-                        gap: "1rem",
                         backgroundColor: "rgba(28, 22, 19, 0.015)",
                       }}
                     >
-                      {/* Left: Time and Candidate info */}
-                      <div style={{ display: "flex", alignItems: "center", gap: "1.25rem", flexWrap: "wrap" }}>
-                        {/* Time block */}
-                        <div
-                          style={{
-                            minWidth: "160px",
-                            fontFamily: "var(--font-label)",
-                            fontWeight: 700,
-                            fontSize: "0.95rem",
-                            color: "var(--ink)",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          <Num>{startTimeStr}</Num> – <Num>{endTimeStr}</Num>
-                        </div>
-
-                        {/* Candidate Name & Reg */}
-                        <div>
-                          <div style={{ fontFamily: "var(--font-headline)", fontSize: "1.25rem", lineHeight: 1.1 }}>
-                            {row.candidateName}
-                          </div>
-                          <div style={{ fontFamily: "var(--font-label)", fontSize: "0.78rem", color: "var(--ink-soft)" }}>
-                            Reg: <strong><Num>{row.regNumber}</Num></strong>
-                          </div>
-                        </div>
-
-                        {/* Division Badge (Shown if Root viewing multiple divisions) */}
-                        {isRoot && selectedDomain === "ALL" && (
-                          <span
-                            title={DOMAIN_LABELS[row.domain]}
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          flexWrap: "wrap",
+                          gap: "1rem",
+                          width: "100%",
+                        }}
+                      >
+                        {/* Left: Time and Candidate info */}
+                        <div style={{ display: "flex", alignItems: "center", gap: "1.25rem", flexWrap: "wrap" }}>
+                          {/* Time block */}
+                          <div
                             style={{
+                              minWidth: "160px",
                               fontFamily: "var(--font-label)",
-                              fontSize: "0.72rem",
-                              textTransform: "uppercase",
-                              padding: "0.15rem 0.45rem",
-                              border: "1px solid var(--ink)",
-                              backgroundColor: "rgba(28, 22, 19, 0.04)",
-                              letterSpacing: "0.06em",
-                              fontWeight: 600,
+                              fontWeight: 700,
+                              fontSize: "0.95rem",
+                              color: "var(--ink)",
                               whiteSpace: "nowrap",
                             }}
                           >
-                            {DOMAIN_SHORT_LABELS[row.domain]}
-                          </span>
-                        )}
-                      </div>
+                            <Num>{startTimeStr}</Num> – <Num>{endTimeStr}</Num>
+                          </div>
 
-                      {/* Right: Actions */}
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                        <a
-                          href={row.meetingLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="stamp-btn"
-                          style={{
-                            fontSize: "0.75rem",
-                            padding: "0.35rem 0.65rem",
-                            textDecoration: "none",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          Join Call
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => handleCopyLink(row.booking.id, row.meetingLink)}
-                          className="ink-btn-secondary"
-                          style={{
-                            fontSize: "0.75rem",
-                            padding: "0.35rem 0.65rem",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {isCurrent ? "Copied!" : "Copy Link"}
-                        </button>
-                        {row.applicationId && (
-                          <Link
-                            href={`/applicants/${row.applicationId}`}
-                            className="ink-btn"
+                          {/* Candidate Name & Reg */}
+                          <div>
+                            <div style={{ fontFamily: "var(--font-headline)", fontSize: "1.25rem", lineHeight: 1.1 }}>
+                              {row.candidateName}
+                            </div>
+                            <div style={{ fontFamily: "var(--font-label)", fontSize: "0.78rem", color: "var(--ink-soft)" }}>
+                              Reg: <strong><Num>{row.regNumber}</Num></strong>
+                            </div>
+                          </div>
+
+                          {/* Division Badge (Shown if Root viewing multiple divisions) */}
+                          {isRoot && selectedDomain === "ALL" && (
+                            <span
+                              title={DOMAIN_LABELS[row.domain]}
+                              style={{
+                                fontFamily: "var(--font-label)",
+                                fontSize: "0.72rem",
+                                textTransform: "uppercase",
+                                padding: "0.15rem 0.45rem",
+                                border: "1px solid var(--ink)",
+                                backgroundColor: "rgba(28, 22, 19, 0.04)",
+                                letterSpacing: "0.06em",
+                                fontWeight: 600,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {DOMAIN_SHORT_LABELS[row.domain]}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Right: Actions */}
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                          {/* Interview Marks Control */}
+                          {row.applicationId && (
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                              {hasMarks && (
+                                <span style={{ fontFamily: "var(--font-label)", fontSize: "0.82rem", fontWeight: 700, whiteSpace: "nowrap" }}>
+                                  Marks: <Num>{row.review2Marks}</Num> / 10
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => toggleMarksPanel(row)}
+                                className={hasMarks ? "ink-btn-secondary" : "stamp-btn"}
+                                style={{
+                                  fontSize: "0.75rem",
+                                  padding: "0.35rem 0.65rem",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {isPanelOpen ? "Close panel" : hasMarks ? "Edit marks" : "Add marks"}
+                              </button>
+                            </div>
+                          )}
+
+                          <a
+                            href={row.meetingLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="stamp-btn"
                             style={{
                               fontSize: "0.75rem",
                               padding: "0.35rem 0.65rem",
@@ -440,10 +489,132 @@ function InterviewLedgerContent() {
                               whiteSpace: "nowrap",
                             }}
                           >
-                            Open Review →
-                          </Link>
-                        )}
+                            Join Call
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyLink(row.booking.id, row.meetingLink)}
+                            className="ink-btn-secondary"
+                            style={{
+                              fontSize: "0.75rem",
+                              padding: "0.35rem 0.65rem",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {isCurrent ? "Copied!" : "Copy Link"}
+                          </button>
+                          {row.applicationId && (
+                            <Link
+                              href={`/applicants/${row.applicationId}`}
+                              className="ink-btn"
+                              style={{
+                                fontSize: "0.75rem",
+                                padding: "0.35rem 0.65rem",
+                                textDecoration: "none",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              Open Review →
+                            </Link>
+                          )}
+                        </div>
                       </div>
+
+                      {/* Inline Marks Panel */}
+                      {isPanelOpen && (
+                        <div
+                          style={{
+                            width: "100%",
+                            marginTop: "0.75rem",
+                            padding: "0.85rem 1rem",
+                            borderTop: "1px dashed var(--ink)",
+                            backgroundColor: "rgba(28, 22, 19, 0.02)",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "0.6rem",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+                            <span className="kicker" style={{ color: "var(--stamp)", margin: 0 }}>
+                              ✦ INTERVIEW EXAMINATION SCORE (0 TO 10) ✦
+                            </span>
+                            <span style={{ fontSize: "0.75rem", color: "var(--ink-soft)" }}>
+                              Candidate: <strong>{row.candidateName}</strong>
+                            </span>
+                          </div>
+
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+                            {/* Stepper */}
+                            <div style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", backgroundColor: "var(--paper)", padding: "0.25rem 0.5rem", border: "1px solid var(--ink)" }}>
+                              <button
+                                type="button"
+                                onClick={() => setMarksValue((m) => Math.max(0, m - 1))}
+                                disabled={marksValue <= 0 || savingMarks}
+                                style={{ width: "24px", height: "24px", border: "1px solid var(--ink)", background: "transparent", cursor: "pointer", fontWeight: 700 }}
+                              >
+                                -
+                              </button>
+                              <input
+                                type="number"
+                                min="0"
+                                max="10"
+                                value={marksValue}
+                                onChange={(e) => {
+                                  const v = parseInt(e.target.value, 10);
+                                  setMarksValue(isNaN(v) ? 0 : Math.max(0, Math.min(10, v)));
+                                }}
+                                style={{ width: "36px", textAlign: "center", border: "none", background: "transparent", fontFamily: "var(--font-label)", fontWeight: 700, fontSize: "1.1rem" }}
+                              />
+                              <span style={{ fontFamily: "var(--font-label)", color: "var(--ink-soft)", whiteSpace: "nowrap" }}>
+                                out of 10
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setMarksValue((m) => Math.min(10, m + 1))}
+                                disabled={marksValue >= 10 || savingMarks}
+                                style={{ width: "24px", height: "24px", border: "1px solid var(--ink)", background: "transparent", cursor: "pointer", fontWeight: 700 }}
+                              >
+                                +
+                              </button>
+                            </div>
+
+                            {/* Comments */}
+                            <div style={{ flex: 1, minWidth: "220px" }}>
+                              <input
+                                type="text"
+                                placeholder="Interview feedback & comments..."
+                                value={commentsValue}
+                                onChange={(e) => setCommentsValue(e.target.value)}
+                                disabled={savingMarks}
+                                className="newspaper-input"
+                                style={{ width: "100%", padding: "0.35rem 0.6rem", fontSize: "0.85rem" }}
+                              />
+                            </div>
+
+                            {/* Actions */}
+                            <div style={{ display: "flex", gap: "0.4rem" }}>
+                              <button
+                                type="button"
+                                onClick={() => handleSaveMarks(row.applicationId)}
+                                disabled={savingMarks}
+                                className="stamp-btn"
+                                style={{ fontSize: "0.78rem", padding: "0.35rem 0.85rem" }}
+                              >
+                                {savingMarks ? "Saving..." : "Save"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setOpenMarksAppId(null)}
+                                disabled={savingMarks}
+                                className="ink-btn-secondary"
+                                style={{ fontSize: "0.78rem", padding: "0.35rem 0.75rem" }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

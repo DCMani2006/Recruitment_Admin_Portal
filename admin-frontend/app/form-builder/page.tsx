@@ -51,6 +51,10 @@ function FormBuilderContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    document.title = "Question Desk · The TAM Times Admin";
+  }, []);
+
   // Candidate Preview Mode
   const [previewAsCandidate, setPreviewAsCandidate] = useState(false);
 
@@ -65,10 +69,24 @@ function FormBuilderContent() {
   const [newQText, setNewQText] = useState("");
   const [newQSubId, setNewQSubId] = useState<string>("");
   const [newQRequired, setNewQRequired] = useState(true);
-  const [newQMaxLength, setNewQMaxLength] = useState<number>(2000);
   const [newQMaxMarks, setNewQMaxMarks] = useState<number>(10);
   const [newQOrder, setNewQOrder] = useState<number>(1);
   const [submittingQ, setSubmittingQ] = useState(false);
+
+  // Edit Subsection State
+  const [editingSub, setEditingSub] = useState<Subsection | null>(null);
+  const [editSubName, setEditSubName] = useState("");
+  const [editSubOrder, setEditSubOrder] = useState<number>(1);
+  const [submittingEditSub, setSubmittingEditSub] = useState(false);
+
+  // Edit Question State
+  const [editingQ, setEditingQ] = useState<Question | null>(null);
+  const [editQText, setEditQText] = useState("");
+  const [editQSubId, setEditQSubId] = useState<string>("");
+  const [editQRequired, setEditQRequired] = useState(true);
+  const [editQMaxMarks, setEditQMaxMarks] = useState<number>(10);
+  const [editQOrder, setEditQOrder] = useState<number>(1);
+  const [submittingEditQ, setSubmittingEditQ] = useState(false);
 
   // Delete Item State
   const [itemToDelete, setItemToDelete] = useState<{ type: "question" | "subsection"; id: string; name: string } | null>(null);
@@ -136,8 +154,8 @@ function FormBuilderContent() {
   // Handle Add Subsection
   const handleCreateSubsection = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newSubName.trim().length < 2 || newSubName.trim().length > 80) {
-      showToast("Subsection title must be between 2 and 80 characters.", "error");
+    if (!newSubName.trim()) {
+      showToast("Subsection title is required.", "error");
       return;
     }
     setSubmittingSub(true);
@@ -154,15 +172,35 @@ function FormBuilderContent() {
     }
   };
 
+  // Handle Update Subsection
+  const handleUpdateSubsection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSub || !editSubName.trim()) {
+      showToast("Subsection title is required.", "error");
+      return;
+    }
+    setSubmittingEditSub(true);
+    try {
+      await api.updateSubsection(editingSub.id, editSubName.trim(), editSubOrder);
+      showToast(`Subsection "${editSubName.trim()}" updated.`, "success");
+      setEditingSub(null);
+      loadForm();
+    } catch (err: any) {
+      if (err?.code === "QUESTION_HAS_ANSWERS" || err?.message?.includes("QUESTION_HAS_ANSWERS")) {
+        showToast("Cannot modify: candidates have already submitted answers in this subsection.", "error");
+      } else {
+        showToast(err.message || "Failed to update subsection.", "error");
+      }
+    } finally {
+      setSubmittingEditSub(false);
+    }
+  };
+
   // Handle Add Question
   const handleCreateQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newQText.trim().length < 5 || newQText.trim().length > 1000) {
-      showToast("Question prompt must be between 5 and 1000 characters.", "error");
-      return;
-    }
-    if (newQMaxLength < 100 || newQMaxLength > 10000) {
-      showToast("Max length must be between 100 and 10000 characters.", "error");
+    if (!newQText.trim()) {
+      showToast("Question prompt is required.", "error");
       return;
     }
     if (newQMaxMarks < 1 || newQMaxMarks > 100) {
@@ -177,7 +215,7 @@ function FormBuilderContent() {
         domain: selectedDomain,
         subsectionId: newQSubId || null,
         required: newQRequired,
-        maxLength: newQMaxLength,
+        maxLength: 100000,
         maxMarks: newQMaxMarks,
         order: newQOrder,
       });
@@ -189,6 +227,41 @@ function FormBuilderContent() {
       showToast(err.message || "Failed to create question.", "error");
     } finally {
       setSubmittingQ(false);
+    }
+  };
+
+  // Handle Update Question
+  const handleUpdateQuestion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingQ || !editQText.trim()) {
+      showToast("Question prompt is required.", "error");
+      return;
+    }
+    if (editQMaxMarks < 1 || editQMaxMarks > 100) {
+      showToast("Max marks must be between 1 and 100.", "error");
+      return;
+    }
+
+    setSubmittingEditQ(true);
+    try {
+      await api.updateQuestion(editingQ.id, {
+        text: editQText.trim(),
+        subsectionId: editQSubId || null,
+        required: editQRequired,
+        maxMarks: editQMaxMarks,
+        order: editQOrder,
+      });
+      showToast("Examination question updated.", "success");
+      setEditingQ(null);
+      loadForm();
+    } catch (err: any) {
+      if (err?.code === "QUESTION_HAS_ANSWERS" || err?.message?.includes("QUESTION_HAS_ANSWERS")) {
+        showToast("Cannot modify: candidates have already submitted answers for this question.", "error");
+      } else {
+        showToast(err.message || "Failed to update question.", "error");
+      }
+    } finally {
+      setSubmittingEditQ(false);
     }
   };
 
@@ -206,7 +279,11 @@ function FormBuilderContent() {
       setItemToDelete(null);
       loadForm();
     } catch (err: any) {
-      showToast(err.message || "Failed to delete item.", "error");
+      if (err?.code === "QUESTION_HAS_ANSWERS" || err?.message?.includes("QUESTION_HAS_ANSWERS")) {
+        showToast("Cannot delete: candidates have already submitted answers for this item.", "error");
+      } else {
+        showToast(err.message || "Failed to delete item.", "error");
+      }
     }
   };
 
@@ -238,13 +315,11 @@ function FormBuilderContent() {
         <form id="subForm" onSubmit={handleCreateSubsection} style={{ display: "flex", flexDirection: "column", gap: "0.85rem", marginTop: "0.5rem" }}>
           <div>
             <label style={{ display: "block", fontFamily: "var(--font-label)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.25rem" }}>
-              Subsection Title (2 to 80 chars)
+              Subsection Title
             </label>
             <input
               type="text"
               required
-              minLength={2}
-              maxLength={80}
               value={newSubName}
               onChange={(e) => setNewSubName(e.target.value)}
               className="newspaper-input"
@@ -267,6 +342,48 @@ function FormBuilderContent() {
         </form>
       </ConfirmModal>
 
+      {/* Edit Subsection Modal */}
+      <ConfirmModal
+        isOpen={!!editingSub}
+        title="Edit Subsection"
+        message="Update the title or order for this questionnaire section."
+        confirmLabel={submittingEditSub ? "Saving..." : "Update Subsection"}
+        onConfirm={() => {
+          const form = document.getElementById("editSubForm") as HTMLFormElement;
+          if (form) form.requestSubmit();
+        }}
+        onCancel={() => setEditingSub(null)}
+      >
+        <form id="editSubForm" onSubmit={handleUpdateSubsection} style={{ display: "flex", flexDirection: "column", gap: "0.85rem", marginTop: "0.5rem" }}>
+          <div>
+            <label style={{ display: "block", fontFamily: "var(--font-label)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.25rem" }}>
+              Subsection Title
+            </label>
+            <input
+              type="text"
+              required
+              value={editSubName}
+              onChange={(e) => setEditSubName(e.target.value)}
+              className="newspaper-input"
+              style={{ width: "100%", padding: "0.45rem 0.6rem" }}
+            />
+          </div>
+          <div>
+            <label style={{ display: "block", fontFamily: "var(--font-label)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.25rem" }}>
+              Display Order
+            </label>
+            <input
+              type="number"
+              min={1}
+              value={editSubOrder}
+              onChange={(e) => setEditSubOrder(Number(e.target.value))}
+              className="newspaper-input"
+              style={{ width: "100px", padding: "0.45rem 0.6rem" }}
+            />
+          </div>
+        </form>
+      </ConfirmModal>
+
       {/* Add Question Modal */}
       <ConfirmModal
         isOpen={showAddQModal}
@@ -282,13 +399,11 @@ function FormBuilderContent() {
         <form id="qForm" onSubmit={handleCreateQuestion} style={{ display: "flex", flexDirection: "column", gap: "0.85rem", marginTop: "0.5rem" }}>
           <div>
             <label style={{ display: "block", fontFamily: "var(--font-label)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.25rem" }}>
-              Prompt Text (5 to 1000 chars)
+              Prompt Text
             </label>
             <textarea
               required
               rows={3}
-              minLength={5}
-              maxLength={1000}
               value={newQText}
               onChange={(e) => setNewQText(e.target.value)}
               className="newspaper-textarea"
@@ -329,36 +444,19 @@ function FormBuilderContent() {
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-            <div>
-              <label style={{ display: "block", fontFamily: "var(--font-label)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.25rem" }}>
-                Max Marks (1 to 100)
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={100}
-                value={newQMaxMarks}
-                onChange={(e) => setNewQMaxMarks(Number(e.target.value))}
-                className="newspaper-input"
-                style={{ width: "100%", padding: "0.45rem 0.6rem" }}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: "block", fontFamily: "var(--font-label)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.25rem" }}>
-                Max Length (Chars)
-              </label>
-              <input
-                type="number"
-                min={100}
-                max={10000}
-                value={newQMaxLength}
-                onChange={(e) => setNewQMaxLength(Number(e.target.value))}
-                className="newspaper-input"
-                style={{ width: "100%", padding: "0.45rem 0.6rem" }}
-              />
-            </div>
+          <div>
+            <label style={{ display: "block", fontFamily: "var(--font-label)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.25rem" }}>
+              Max Marks (1 to 100)
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={newQMaxMarks}
+              onChange={(e) => setNewQMaxMarks(Number(e.target.value))}
+              className="newspaper-input"
+              style={{ width: "100%", padding: "0.45rem 0.6rem" }}
+            />
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.25rem" }}>
@@ -376,6 +474,96 @@ function FormBuilderContent() {
         </form>
       </ConfirmModal>
 
+      {/* Edit Question Modal */}
+      <ConfirmModal
+        isOpen={!!editingQ}
+        title="Edit Examination Question"
+        message="Update the question prompt, subsection, marks, or display order."
+        confirmLabel={submittingEditQ ? "Saving..." : "Update Question"}
+        onConfirm={() => {
+          const form = document.getElementById("editQForm") as HTMLFormElement;
+          if (form) form.requestSubmit();
+        }}
+        onCancel={() => setEditingQ(null)}
+      >
+        <form id="editQForm" onSubmit={handleUpdateQuestion} style={{ display: "flex", flexDirection: "column", gap: "0.85rem", marginTop: "0.5rem" }}>
+          <div>
+            <label style={{ display: "block", fontFamily: "var(--font-label)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.25rem" }}>
+              Prompt Text
+            </label>
+            <textarea
+              required
+              rows={3}
+              value={editQText}
+              onChange={(e) => setEditQText(e.target.value)}
+              className="newspaper-textarea"
+              style={{ width: "100%", padding: "0.45rem 0.6rem" }}
+            />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: "0.75rem" }}>
+            <div>
+              <label style={{ display: "block", fontFamily: "var(--font-label)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.25rem" }}>
+                Subsection
+              </label>
+              <select
+                value={editQSubId}
+                onChange={(e) => setEditQSubId(e.target.value)}
+                className="newspaper-select"
+                style={{ width: "100%", padding: "0.45rem 0.6rem" }}
+              >
+                <option value="">General / None</option>
+                {subsections.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontFamily: "var(--font-label)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.25rem" }}>
+                Order
+              </label>
+              <input
+                type="number"
+                min={1}
+                value={editQOrder}
+                onChange={(e) => setEditQOrder(Number(e.target.value))}
+                className="newspaper-input"
+                style={{ width: "100%", padding: "0.45rem 0.6rem" }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: "block", fontFamily: "var(--font-label)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.25rem" }}>
+              Max Marks (1 to 100)
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={editQMaxMarks}
+              onChange={(e) => setEditQMaxMarks(Number(e.target.value))}
+              className="newspaper-input"
+              style={{ width: "100%", padding: "0.45rem 0.6rem" }}
+            />
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.25rem" }}>
+            <input
+              id="editQReq"
+              type="checkbox"
+              checked={editQRequired}
+              onChange={(e) => setEditQRequired(e.target.checked)}
+              style={{ cursor: "pointer", accentColor: "var(--stamp)" }}
+            />
+            <label htmlFor="editQReq" style={{ fontFamily: "var(--font-label)", fontSize: "0.82rem", cursor: "pointer" }}>
+              Required response from candidate
+            </label>
+          </div>
+        </form>
+      </ConfirmModal>
+
       {/* Header section */}
       <div style={{ borderBottom: "2px solid var(--ink)", paddingBottom: "1rem" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" }}>
@@ -387,6 +575,9 @@ function FormBuilderContent() {
             <p className="deck" style={{ margin: 0, maxWidth: "700px" }}>
               Manage recruitment questions, assessment rubrics, and examination subsections.
             </p>
+            <div style={{ fontSize: "0.75rem", fontFamily: "var(--font-label)", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--ink-soft)", marginTop: "0.35rem" }}>
+              Candidates can write answers of any length · No character limit
+            </div>
           </div>
 
           {/* Division Scoreboard */}
@@ -431,22 +622,7 @@ function FormBuilderContent() {
         )}
       </div>
 
-      {/* Warning Banner */}
-      <div
-        style={{
-          border: "2px solid var(--stamp)",
-          backgroundColor: "rgba(139, 30, 30, 0.04)",
-          padding: "0.75rem 1.25rem",
-          display: "flex",
-          alignItems: "center",
-          gap: "0.75rem",
-        }}
-      >
-        <span style={{ color: "var(--stamp)", fontSize: "1.2rem", fontWeight: 700 }}>✦</span>
-        <div style={{ fontSize: "0.85rem", fontFamily: "var(--font-label)" }}>
-          <strong>EDITORIAL WARNING:</strong> Changing questions after people have started applying can confuse them or invalidate existing submissions.
-        </div>
-      </div>
+
 
       {/* Action Bar (Add Subsection, Add Question, Preview Toggle) */}
       <div
@@ -590,7 +766,7 @@ function FormBuilderContent() {
                   />
 
                   <div style={{ display: "flex", justifyContent: "flex-end", fontFamily: "var(--font-label)", fontSize: "0.72rem", color: "var(--ink-soft)" }}>
-                    <Num>0</Num> / <Num>{q.maxLength || 2000}</Num> characters
+                    Response text
                   </div>
                 </div>
               ))}
@@ -624,26 +800,46 @@ function FormBuilderContent() {
                 </div>
 
                 {subsection && (
-                  <button
-                    type="button"
-                    disabled={!FORM_EDIT_SUPPORTED}
-                    title={FORM_EDIT_SUPPORTED ? "Remove subsection" : "Editing questions is disabled after recruitment begins."}
-                    onClick={() => setItemToDelete({ type: "subsection", id: subsection.id, name: subsection.name })}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: FORM_EDIT_SUPPORTED ? "var(--stamp)" : "var(--ink-soft)",
-                      fontSize: "0.75rem",
-                      fontFamily: "var(--font-label)",
-                      textTransform: "uppercase",
-                      fontWeight: 700,
-                      cursor: FORM_EDIT_SUPPORTED ? "pointer" : "not-allowed",
-                      opacity: FORM_EDIT_SUPPORTED ? 1 : 0.4,
-                      textDecoration: "underline",
-                    }}
-                  >
-                    Delete Subsection
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingSub(subsection);
+                        setEditSubName(subsection.name);
+                        setEditSubOrder(subsection.order || sIdx + 1);
+                      }}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "var(--ink)",
+                        fontSize: "0.75rem",
+                        fontFamily: "var(--font-label)",
+                        textTransform: "uppercase",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      Edit Subsection
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setItemToDelete({ type: "subsection", id: subsection.id, name: subsection.name })}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "var(--stamp)",
+                        fontSize: "0.75rem",
+                        fontFamily: "var(--font-label)",
+                        textTransform: "uppercase",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      Delete Subsection
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -691,9 +887,6 @@ function FormBuilderContent() {
                           <span style={{ fontFamily: "var(--font-label)", fontSize: "0.75rem", color: "var(--ink-soft)" }}>
                             · <Num>{q.maxMarks}</Num> Marks
                           </span>
-                          <span style={{ fontFamily: "var(--font-label)", fontSize: "0.75rem", color: "var(--ink-soft)" }}>
-                            · Max <Num>{q.maxLength || 2000}</Num> Chars
-                          </span>
                         </div>
 
                         <div style={{ fontFamily: "var(--font-body)", fontSize: "1.05rem", lineHeight: 1.35, color: "var(--ink)" }}>
@@ -702,22 +895,41 @@ function FormBuilderContent() {
                       </div>
 
                       {/* Question Actions */}
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                         <button
                           type="button"
-                          disabled={!FORM_EDIT_SUPPORTED}
-                          title={FORM_EDIT_SUPPORTED ? "Remove question" : "Editing questions is disabled after recruitment begins."}
+                          onClick={() => {
+                            setEditingQ(q);
+                            setEditQText(q.text);
+                            setEditQSubId(q.subsectionId || "");
+                            setEditQRequired(Boolean(q.required));
+                            setEditQMaxMarks(q.maxMarks || 10);
+                            setEditQOrder(q.order || qIdx + 1);
+                          }}
+                          className="ink-btn-secondary"
+                          style={{
+                            fontSize: "0.75rem",
+                            padding: "0.3rem 0.7rem",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          ✎ Edit
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => setItemToDelete({ type: "question", id: q.id, name: q.text.slice(0, 30) + "..." })}
                           className="ink-btn-secondary"
                           style={{
-                            fontSize: "0.72rem",
-                            padding: "0.25rem 0.5rem",
-                            color: FORM_EDIT_SUPPORTED ? "var(--stamp)" : "var(--ink-soft)",
-                            cursor: FORM_EDIT_SUPPORTED ? "pointer" : "not-allowed",
-                            opacity: FORM_EDIT_SUPPORTED ? 1 : 0.4,
+                            fontSize: "0.75rem",
+                            padding: "0.3rem 0.7rem",
+                            fontWeight: 700,
+                            color: "var(--stamp)",
+                            borderColor: "var(--stamp)",
+                            cursor: "pointer",
                           }}
                         >
-                          Delete
+                          ✕ Delete
                         </button>
                       </div>
                     </div>

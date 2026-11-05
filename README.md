@@ -8,32 +8,79 @@ This repository contains the backend architecture and API routes for the Admin/D
 - **ORM:** Prisma
 - **Database:** MongoDB
 - **Security & Auth:** bcrypt, jsonwebtoken (JWT)
+- **Mailing:** Nodemailer (Gmail SMTP with rate limiting and dry-run support)
+
+---
 
 ## Current Architecture & Shared Schema
-The database architecture has been synchronized with the Candidate backend to ensure seamless data flow. Key shared models include:
+The database architecture is synchronized with the Candidate backend to ensure seamless data flow. Key shared models include:
 - **Admin:** Stores Root Admins and Domain Heads with secure password hashing (`password String?`) and role-based access control.
-- **User:** Stores candidate form submissions, current stage (`SHORTLISTED`, `INTERVIEW`, etc.), and dedicated Admin review fields (`review1Marks`, `review1Comments`, `review1Passed`, `review2Marks`, `review2Comments`, `review2Passed`).
-- **Slot:** Acts as the scheduling bridge, storing 10-minute time blocks, the interviewer's ID, the assigned candidate's ID, and the permanent meeting link.
+- **Application:** Stores candidate status, review scores, and the new Round 1 decision workflow fields:
+  - `round1Decision Round1Decision?` (`SHORTLIST` | `REJECT`)
+  - `round1DecisionAt DateTime?`
+  - `round1EmailSentAt DateTime?`
+  - `review1Marks Int?`, `review1Comments String?`, `review1Passed Boolean`
+  - `review2Marks Int?`, `review2Comments String?`, `review2Passed Boolean`
+- **Slot & SlotBooking:** Manages interview scheduling blocks, interviewer assignments, meeting links, and candidate reservations.
+- **EmailLog:** Tracks dispatched recruitment emails (`SHORTLISTED`, `REJECTED`, etc.), delivery attempts, timestamps, and dry-run notes.
 
-## Progress & Implemented Features
+---
 
-### 1. Admin Authentication & RBAC (`adminController.ts` & `authMiddleware.ts`)
-- **`assignDomainHead` (Root Admin):** Allows Root Admins to pre-assign and whitelist Domain Head college emails.
-- **`setupAdminAccount` (First-Time Claim):** Enables whitelisted Domain Heads to securely claim their accounts, hash custom passwords via `bcrypt`, and auto-generate session JWTs.
-- **`loginAdmin` (Subsequent Logins):** Validates credentials, checks account status, and issues a 12-hour signed JWT.
-- **Middleware Security:** Integrated `verifyToken` for Bearer token validation and `authorizeRole` for strict role-based access control (`ROOT_ADMIN` and `DOMAIN_HEAD`).
+## New Shortlist & Email Workflow
 
-### 2. Applicant Evaluation Logic (`adminController.ts`)
-- **`getAllApplicants`**: Fetches the complete list of candidates for the main admin dashboard.
-- **`getApplicantById`**: Retrieves a specific candidate's full profile, responses, and evaluation history.
-- **`updateApplicantReview`**: Allows admins to save marks, comments, and toggle outcomes for Review 1 and Review 2 while enforcing teammate security guardrails (`adminRules.ts`).
+### 1. Separate Round 1 Decisions (`PUT /api/admin/applicants/:applicationId/review`)
+- Decisions are decoupled from immediate stage changes. Domain Heads/Root Admins mark `round1Decision` as `"SHORTLIST"`, `"REJECT"`, or `null` (undecided).
+- Marking `SHORTLIST` sets `review1Passed: true`; `REJECT` or `null` sets `review1Passed: false`.
+- Setting a decision is permitted **only** while the application is submitted, currently in `FORM_FILLING`, and `round1EmailSentAt` is null (otherwise returns `409 DECISION_LOCKED`).
+- **Direct stage jumps are blocked:** A `PUT` attempting to move `FORM_FILLING` directly to `SHORTLISTED` or `REJECTED` is refused with `409 USE_DECISION_FLOW`. The stage transition occurs solely when decision emails are dispatched.
+- Once `round1EmailSentAt` is populated, Round 1 scores, comments, decisions, and answer scores become immutable (`409 DECISION_LOCKED`).
 
-### 3. Interview Scheduling Pipeline
-- **`createInterviewSlots`**: Allows Domain Heads to bulk-generate availability blocks and embed permanent meeting links directly into the database slots.
-- **`getMySchedule`**: Fetches a chronologically sorted list of successfully booked interview slots for the logged-in Domain Head, complete with assigned candidate details.
+### 2. Decision Summary & Email Templates
+- **`GET /api/admin/round1/summary?domain=`**: Returns real-time counts for `undecided`, `pendingShortlist`, `pendingReject`, `sentShortlist`, and `sentReject`.
+- **`GET /api/admin/round1/templates?decision=`**: Returns editable default notification copy with merge tags:
+  - `{{name}}`: Candidate full name
+  - `{{division}}`: Clean division label (e.g. "Research & Development", "Tech")
+  - `{{site_url}}`: Configured candidate portal URL (`CANDIDATE_SITE_URL`)
 
-### 4. API Routing (`adminRoutes.ts`)
-Fully configured Express router connecting public auth endpoints (`/setup`, `/login`) and protecting operational routes via JWT verification and role checks.
+### 3. Batch Email Dispatcher (`POST /api/admin/round1/send`)
+- Accepts `{ domain, decision: "SHORTLIST" | "REJECT", subject, body, limit? }`.
+- Domain Heads are strictly restricted to their assigned domain (`403 WRONG_DOMAIN`); Root Admins must pass an explicit domain (never `"ALL"`).
+- Processes up to `limit` candidates (default 20, max 50) in FIFO order.
+- Dispatches emails sequentially with ~1.2s delay between messages.
+- **Atomic updates:** On dispatch success, updates application `stage` to `SHORTLISTED` or `REJECTED`, sets `round1EmailSentAt`, and logs an `EmailLog` row marked `SENT`.
+- **Idempotent:** Applications with an existing `SENT` log for that decision are automatically skipped.
+- **Dry-run mode (`EMAIL_DRY_RUN=true`):** Bypasses SMTP transmission, applies state transitions, and records `"dry run"` in the email log.
 
-## Next Steps (Upcoming Work)
-- Integrate automated email triggers (via Amazon SES) when a candidate's status changes.
+### 4. Interview Scoring Guardrails
+- `PUT /api/admin/applicants/:applicationId/review` accepts `review2Marks` (0 to 10), `review2Comments`, and `review2Passed` **only** when:
+  1. The application is in `INTERVIEW` stage or later.
+  2. The candidate's booked interview slot `endTime` has elapsed.
+- Any attempt to submit interview marks before the slot ends returns `409 INTERVIEW_NOT_DONE`.
+
+### 5. Form Question Length & Management
+- Questions store `maxLength: 100000` (character limits removed).
+- `PUT /api/admin/form/question/:id` and `PUT /api/admin/form/subsection/:id` allow in-place editing under domain access checks.
+- `DELETE /api/admin/form/question/:id` and `DELETE /api/admin/form/subsection/:id` return `409 QUESTION_HAS_ANSWERS` if candidate answers already reference them.
+- One-off migration script: `npx tsx scripts/unlimit-questions.ts` sets `maxLength: 100000` across all existing questions.
+
+---
+
+## Candidate Backend Synchronization Instructions
+
+When deploying this workflow to the candidate backend repository:
+1. Copy `backend/prisma/schema.prisma` directly to the candidate backend repo at `prisma/schema.prisma`.
+2. In the candidate backend repo, execute:
+   ```bash
+   npx prisma generate
+   npx prisma db push
+   ```
+Both repositories share the exact same MongoDB collection schemas.
+
+---
+
+## Running Verification Suite
+
+To verify all 5 workflow test cases (marking/updating decisions, stage jump rejection, dry-run batch email dispatch, cross-domain protection, and interview time guardrails):
+```bash
+npx tsx scripts/run-checks.ts
+```
