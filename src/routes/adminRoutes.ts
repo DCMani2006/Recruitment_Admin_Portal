@@ -6,6 +6,8 @@ import {
   getApplicantById, 
   updateApplicantReview,
   releaseShortlistBatch,
+  getResultLists,
+  sendResultEmails,
   createInterviewSlots,
   getMySchedule,
   deleteInterviewSlot,
@@ -30,6 +32,9 @@ router.use(verifyToken);
 
 // Domain Heads & Root Admins can view, evaluate, and batch-release candidates
 router.get('/applicants', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getAllApplicants);
+// Shortlisted / Rejected lists and their emails (before /applicants/:id so "results" isn't read as an id)
+router.get('/applicants/results', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getResultLists);
+router.post('/applicants/send-result-emails', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), sendResultEmails);
 router.get('/applicants/:id', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getApplicantById);
 router.put('/applicants/:applicationId/review', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), updateApplicantReview);
 router.post('/applicants/release-shortlist', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), releaseShortlistBatch);
