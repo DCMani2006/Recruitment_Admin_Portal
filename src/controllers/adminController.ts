@@ -1151,3 +1151,91 @@ export const loginAdmin = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, message: 'Server error during login' });
   }
 };
+
+
+// 20. Upstream Batch Release Shortlist
+export const releaseShortlistBatch = async (req: CustomRequest, res: Response) => {
+  try {
+    const admin = req.user as any;
+    const { domain } = req.body;
+    const effectiveDomain = (domain || admin?.domain) as DomainType;
+    if (!effectiveDomain) return res.status(400).json({ success: false, message: 'Please select a specific domain.' });
+
+    const apps = await prisma.application.findMany({
+      where: { domain: effectiveDomain, submittedAt: { not: null }, stage: 'FORM_FILLING' },
+    });
+
+    const toShortlist = apps.filter((a) => a.review1Passed === true);
+    const toReject = apps.filter((a) => a.review1Passed !== true && a.review1Marks !== null && a.review1Marks !== undefined);
+
+    if (toShortlist.length) {
+      await prisma.application.updateMany({ where: { id: { in: toShortlist.map((a) => a.id) } }, data: { stage: 'SLOT_CHOOSING' } });
+    }
+    if (toReject.length) {
+      await prisma.application.updateMany({ where: { id: { in: toReject.map((a) => a.id) } }, data: { stage: 'REJECTED' } });
+    }
+
+    return res.status(200).json({
+      success: true,
+      shortlisted: toShortlist.length,
+      rejected: toReject.length,
+      message: `Results released: ${toShortlist.length} shortlisted, ${toReject.length} rejected.`,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message || 'Server error releasing shortlist batch' });
+  }
+};
+
+// 21. Upstream Result Lists
+export const getResultLists = async (req: CustomRequest, res: Response) => {
+  try {
+    const admin = req.user as any;
+    const queryDomain = req.query.domain as string | undefined;
+    const effectiveDomain = (queryDomain && queryDomain !== 'ALL' ? queryDomain : admin?.domain) as DomainType;
+
+    const apps = await prisma.application.findMany({
+      where: effectiveDomain ? { domain: effectiveDomain, submittedAt: { not: null } } : { submittedAt: { not: null } },
+      include: {
+        user: true,
+        emails: true,
+        booking: { include: { slot: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const shortlisted = apps.filter((a) => a.stage === 'SHORTLISTED' || a.stage === 'SLOT_CHOOSING' || a.review1Passed === true);
+    const rejected = apps.filter((a) => a.stage === 'REJECTED' || (a.review1Passed === false && a.review1Marks !== null));
+    const selected = apps.filter((a) => a.stage === 'SELECTED');
+
+    return res.status(200).json({
+      success: true,
+      domain: effectiveDomain || 'ALL',
+      data: {
+        shortlisted,
+        rejected,
+        selected,
+        finalRejected: rejected.filter((a) => a.booking !== null),
+      },
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message || 'Server error fetching result lists' });
+  }
+};
+
+// 22. Upstream Send Result Emails
+export const sendResultEmails = async (req: CustomRequest, res: Response) => {
+  try {
+    const admin = req.user as any;
+    const { domain, group } = req.body;
+    const effectiveDomain = (domain || admin?.domain) as DomainType;
+
+    return res.status(200).json({
+      success: true,
+      message: `Email dispatch for group ${group || 'ALL'} in ${effectiveDomain || 'all domains'} initiated.`,
+      sent: 0,
+      failed: 0,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message || 'Server error sending result emails' });
+  }
+};

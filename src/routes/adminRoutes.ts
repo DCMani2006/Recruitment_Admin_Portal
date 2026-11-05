@@ -5,6 +5,9 @@ import {
   getAllApplicants,
   getApplicantById,
   updateApplicantReview,
+  releaseShortlistBatch,
+  getResultLists,
+  sendResultEmails,
   createInterviewSlots,
   updateInterviewSlot,
   deleteSlot,
@@ -25,15 +28,21 @@ import {
 import { authorizeRole, limitLoginAttempts, verifyToken } from '../middleware/authMiddleware';
 
 const router = Router();
+
+// Public Auth Routes
 router.post('/setup', limitLoginAttempts, setupAdminAccount);
 router.post('/login', limitLoginAttempts, loginAdmin);
 
+// Protect all routes below with verifyToken
 router.use(verifyToken);
 
-// Domain Heads & Root Admins can view and evaluate candidates
+// Domain Heads & Root Admins can view, evaluate, and batch-release candidates
 router.get('/applicants', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getAllApplicants);
+router.get('/applicants/results', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getResultLists);
+router.post('/applicants/send-result-emails', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), sendResultEmails);
 router.get('/applicants/:id', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getApplicantById);
 router.put('/applicants/:applicationId/review', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), updateApplicantReview);
+router.post('/applicants/release-shortlist', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), releaseShortlistBatch);
 
 // Domain Heads create their slots, update slots, delete slots, and view their schedules
 router.post('/slots', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), createInterviewSlots);
@@ -41,7 +50,7 @@ router.patch('/slots/:id', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), updateI
 router.delete('/slots/:id', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), deleteSlot);
 router.get('/schedule/:adminId', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getMySchedule);
 
-// Domain Heads build and view their domain's application form
+// Domain Heads build, view, edit, and delete their domain's application form questions & subsections
 router.get('/form', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), getDomainForm);
 router.post('/form/subsection', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), createSubsection);
 router.put('/form/subsection/:id', authorizeRole(['DOMAIN_HEAD', 'ROOT_ADMIN']), updateSubsection);
