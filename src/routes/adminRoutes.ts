@@ -19,13 +19,13 @@ import {
   deleteQuestion,
   getDomainForm
 } from '../controllers/adminController';
-import { authorizeRole, verifyToken } from '../middleware/authMiddleware';
+import { authorizeRole, limitLoginAttempts, verifyToken } from '../middleware/authMiddleware';
 
 const router = Router();
 
 // Public Auth Routes
-router.post('/setup', setupAdminAccount);
-router.post('/login', loginAdmin);
+router.post('/setup', limitLoginAttempts, setupAdminAccount);
+router.post('/login', limitLoginAttempts, loginAdmin);
 
 // Protect all routes below with verifyToken
 router.use(verifyToken);
