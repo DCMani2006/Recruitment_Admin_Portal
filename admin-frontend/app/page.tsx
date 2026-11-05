@@ -39,7 +39,7 @@ export default function AdminPortal() {
 
   // 1. Form Questions & Marks is FIRST tab by default
   const [activeTab, setActiveTab] = useState<
-    "questions" | "candidates" | "review2" | "slots" | "root"
+    "questions" | "candidates" | "results" | "review2" | "slots" | "root"
   >("questions");
 
   // TAB 1: Form Questions & Subsections State
@@ -66,6 +66,13 @@ export default function AdminPortal() {
   const [questionScores, setQuestionScores] = useState<Record<string, number>>({});
   const [reviewComments, setReviewComments] = useState("");
   const [isShortlistedToggle, setIsShortlistedToggle] = useState<boolean>(false);
+
+  // TAB 3: Results & Emails (Shortlisted / Rejected lists, emails sent per group)
+  const [resultLists, setResultLists] = useState<{ shortlisted: any[]; rejected: any[] }>({
+    shortlisted: [],
+    rejected: [],
+  });
+  const [sendingGroup, setSendingGroup] = useState<"SHORTLISTED" | "REJECTED" | null>(null);
 
   // TAB 3: Review 2 (Interview Evaluation) State
   const [review2Search, setReview2Search] = useState("");
@@ -431,14 +438,15 @@ export default function AdminPortal() {
     }
   };
 
-  // ADDED: Confirmation Alert for Batch Email Release
+  // Release Review 1 results: moves stages only. Emails are sent from the Results & Emails tab.
   const handleBatchReleaseShortlist = async () => {
     if (!token) return;
-    
+
     const isConfirmed = window.confirm(
       "🚨 ARE YOU ABSOLUTELY SURE?\n\n" +
-      "This will instantly send Interview Invite emails to all shortlisted candidates, " +
-      "and Polite Rejection emails to all graded candidates left unselected.\n\n" +
+      "This moves all shortlisted candidates to Slot Choosing (they can book interviews), " +
+      "and all graded candidates left unselected to Rejected.\n\n" +
+      "No emails are sent yet: you send them afterwards from the Results & Emails tab.\n\n" +
       "Please ensure all Domain Heads are finished grading before clicking OK."
     );
 
@@ -468,10 +476,60 @@ export default function AdminPortal() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || "Batch release failed");
 
-      notify("success", json.message || "Shortlist released and emails sent to all shortlisted candidates!");
+      notify("success", json.message || "Results released. Send the emails from the Results & Emails tab.");
       fetchCandidates(filterDomain);
+      fetchResults(targetDom);
     } catch (err: any) {
       notify("error", err.message);
+    }
+  };
+
+  // The domain the result lists are for (domain heads: always their own)
+  const resultsDomain =
+    adminUser?.role === "DOMAIN_HEAD" && adminUser?.domain ? adminUser.domain : filterDomain;
+
+  const fetchResults = async (dom = resultsDomain) => {
+    if (!token || !dom || dom === "ALL") return;
+    try {
+      const res = await fetch(`${API_BASE}/applicants/results?domain=${dom}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message || "Failed to load result lists");
+      setResultLists(json.data || { shortlisted: [], rejected: [] });
+    } catch (err: any) {
+      notify("error", err.message);
+    }
+  };
+
+  const handleSendResultEmails = async (group: "SHORTLISTED" | "REJECTED") => {
+    if (!token || resultsDomain === "ALL") return;
+    const list = group === "SHORTLISTED" ? resultLists.shortlisted : resultLists.rejected;
+    const pending = list.filter((c) => c.emailStatus !== "SENT").length;
+    if (pending === 0) {
+      notify("success", "Everyone in this list has already been emailed.");
+      return;
+    }
+    const kind = group === "SHORTLISTED" ? "shortlist (interview invite)" : "rejection";
+    if (!window.confirm(`Send the ${kind} email to ${pending} candidate(s) in ${resultsDomain}?\n\nCandidates who already received it are skipped.`)) {
+      return;
+    }
+
+    setSendingGroup(group);
+    try {
+      const res = await fetch(`${API_BASE}/applicants/send-result-emails`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ domain: resultsDomain, group }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message || "Sending emails failed");
+      notify(json.failed ? "error" : "success", json.message);
+    } catch (err: any) {
+      notify("error", err.message);
+    } finally {
+      setSendingGroup(null);
+      fetchResults(resultsDomain);
     }
   };
 
@@ -938,6 +996,20 @@ export default function AdminPortal() {
 
               <button
                 onClick={() => {
+                  setActiveTab("results");
+                  fetchResults(resultsDomain);
+                }}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold ${
+                  activeTab === "results"
+                    ? "bg-slate-900 text-white"
+                    : "bg-white text-slate-700 border border-slate-200"
+                }`}
+              >
+                3. Results &amp; Emails
+              </button>
+
+              <button
+                onClick={() => {
                   setActiveTab("review2");
                   fetchCandidates(filterDomain);
                 }}
@@ -947,7 +1019,7 @@ export default function AdminPortal() {
                     : "bg-white text-slate-700 border border-slate-200"
                 }`}
               >
-                3. Review 2: My Interviewees ({interviewCandidates.length})
+                4. Review 2: My Interviewees ({interviewCandidates.length})
               </button>
 
               <button
@@ -961,7 +1033,7 @@ export default function AdminPortal() {
                     : "bg-white text-slate-700 border border-slate-200"
                 }`}
               >
-                4. Interview Slots (Calendly Style)
+                5. Interview Slots (Calendly Style)
               </button>
 
               {adminUser?.role === "ROOT_ADMIN" && (
@@ -976,7 +1048,7 @@ export default function AdminPortal() {
                       : "bg-white text-indigo-700 border border-indigo-200"
                   }`}
                 >
-                  5. Whitelist Domain Heads
+                  6. Whitelist Domain Heads
                 </button>
               )}
             </div>
@@ -1292,7 +1364,7 @@ export default function AdminPortal() {
                       Review 1 Actions & Excel Export
                     </h2>
                     <p className="text-xs text-slate-500">
-                      All candidates start as <strong>Not Shortlisted</strong>. Toggle the switch on candidates you want to shortlist, then click Release Shortlist to email everyone at once.
+                      All candidates start as <strong>Not Shortlisted</strong>. Toggle the switch on candidates you want to shortlist, then click Release Results to move them to Shortlisted / Rejected. Send the emails afterwards from the <strong>Results &amp; Emails</strong> tab.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2.5">
@@ -1306,7 +1378,7 @@ export default function AdminPortal() {
                       onClick={handleBatchReleaseShortlist}
                       className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-sm"
                     >
-                      Release Shortlist & Send Emails to All ({shortlistedCount} Shortlisted)
+                      Release Results ({shortlistedCount} Shortlisted) — no emails yet
                     </button>
                   </div>
                 </div>
@@ -1614,7 +1686,138 @@ export default function AdminPortal() {
             )}
 
             {/* ===================================================================== */}
-            {/* TAB 3: REVIEW 2 (ONLY CANDIDATES WHO PICKED A SLOT)                   */}
+            {/* TAB 3: RESULTS & EMAILS (SHORTLISTED / REJECTED LISTS, EMAIL PER GROUP) */}
+            {/* ===================================================================== */}
+            {activeTab === "results" && (
+              <div className="space-y-4">
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap justify-between items-center gap-3">
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900">Results &amp; Emails</h2>
+                    <p className="text-xs text-slate-500">
+                      Candidates appear here after Review 1 results are released. Each button emails only the
+                      candidates in that list who haven&apos;t received it yet, so pressing it again is safe and retries
+                      any that failed.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {adminUser?.role === "ROOT_ADMIN" && (
+                      <select
+                        value={filterDomain}
+                        onChange={(e) => {
+                          setFilterDomain(e.target.value);
+                          fetchResults(e.target.value);
+                        }}
+                        className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs"
+                      >
+                        <option value="ALL" disabled>
+                          Choose a domain
+                        </option>
+                        {DOMAINS.map((d) => (
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <button
+                      onClick={() => fetchResults(resultsDomain)}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+
+                {resultsDomain === "ALL" ? (
+                  <p className="text-xs text-slate-500 bg-white p-6 rounded-xl border border-slate-200 text-center">
+                    Choose a domain to see its Shortlisted and Rejected lists.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {([
+                      {
+                        group: "SHORTLISTED" as const,
+                        title: "Shortlisted",
+                        rows: resultLists.shortlisted,
+                        hint: "Waiting to book an interview slot. Email: interview invite.",
+                        button: "Send shortlist emails",
+                        color: "bg-emerald-600 hover:bg-emerald-700",
+                      },
+                      {
+                        group: "REJECTED" as const,
+                        title: "Rejected",
+                        rows: resultLists.rejected,
+                        hint: "Not taken forward after Review 1. Email: polite rejection.",
+                        button: "Send rejection emails",
+                        color: "bg-slate-700 hover:bg-slate-800",
+                      },
+                    ]).map(({ group, title, rows, hint, button, color }) => {
+                      const pending = rows.filter((c: any) => c.emailStatus !== "SENT").length;
+                      return (
+                        <div key={group} className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                          <div className="flex flex-wrap justify-between items-start gap-3">
+                            <div>
+                              <h2 className="font-bold text-base">
+                                {title} ({rows.length})
+                              </h2>
+                              <p className="text-xs text-slate-500">{hint}</p>
+                            </div>
+                            <button
+                              onClick={() => handleSendResultEmails(group)}
+                              disabled={sendingGroup !== null || pending === 0}
+                              className={`${color} disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold px-4 py-2.5 rounded-lg`}
+                            >
+                              {sendingGroup === group ? "Sending…" : `${button} (${pending} to send)`}
+                            </button>
+                          </div>
+
+                          <div className="space-y-2 max-h-[550px] overflow-y-auto">
+                            {rows.length === 0 ? (
+                              <p className="text-xs text-slate-500 py-8 text-center">No candidates in this list yet.</p>
+                            ) : (
+                              rows.map((c: any) => (
+                                <div
+                                  key={c.applicationId}
+                                  className="p-3 rounded-lg border border-slate-200 flex justify-between items-start gap-3"
+                                >
+                                  <div className="min-w-0">
+                                    <p className="font-semibold text-sm">{c.name || "Candidate"}</p>
+                                    <p className="text-xs text-slate-500 break-all">
+                                      {c.regNumber} • {c.email}
+                                    </p>
+                                    {c.emailStatus === "FAILED" && c.emailError && (
+                                      <p className="text-[11px] text-red-600 mt-1 break-words">{c.emailError}</p>
+                                    )}
+                                  </div>
+                                  <span
+                                    className={`shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded ${
+                                      c.emailStatus === "SENT"
+                                        ? "bg-emerald-100 text-emerald-800"
+                                        : c.emailStatus === "FAILED"
+                                        ? "bg-red-100 text-red-700"
+                                        : "bg-amber-100 text-amber-800"
+                                    }`}
+                                  >
+                                    {c.emailStatus === "SENT"
+                                      ? "EMAIL SENT"
+                                      : c.emailStatus === "FAILED"
+                                      ? "EMAIL FAILED"
+                                      : "NOT EMAILED"}
+                                  </span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ===================================================================== */}
+            {/* TAB 4: REVIEW 2 (ONLY CANDIDATES WHO PICKED A SLOT)                   */}
             {/* ===================================================================== */}
             {activeTab === "review2" && (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
