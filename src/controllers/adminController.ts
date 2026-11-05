@@ -172,14 +172,6 @@ export const updateApplicantReview = async (req: CustomRequest, res: Response) =
   }
 };
 
-// Domain heads always work on their own domain; root admins must pick one
-const resolveDomain = (admin: any, domain: unknown): DomainType | undefined =>
-  admin?.role === 'DOMAIN_HEAD' && admin?.domain
-    ? (admin.domain as DomainType)
-    : typeof domain === 'string' && (Object.values(DomainType) as string[]).includes(domain)
-    ? (domain as DomainType)
-    : undefined;
-
 // Shortlisted = waiting to book a slot; Rejected = turned down at Review 1 (not after an interview,
 // because the rejection email says they weren't moved to the interview stage)
 const RESULT_GROUPS = {
@@ -209,7 +201,7 @@ function emailStatus(emails: { type: string; status: string; sentAt: Date | null
 // 3B. Release Review 1 results: moves stages only. Emails are sent separately from the result lists.
 export const releaseShortlistBatch = async (req: CustomRequest, res: Response) => {
   try {
-    const effectiveDomain = resolveDomain(req.user, req.body?.domain);
+    const effectiveDomain = scopedDomain(req.user, req.body?.domain);
     if (!effectiveDomain) return res.status(400).json({ success: false, message: 'Please select a specific domain.' });
 
     const apps = await prisma.application.findMany({
@@ -240,7 +232,7 @@ export const releaseShortlistBatch = async (req: CustomRequest, res: Response) =
 // 3C. The two result lists (Shortlisted, Rejected) with each candidate's email status
 export const getResultLists = async (req: CustomRequest, res: Response) => {
   try {
-    const effectiveDomain = resolveDomain(req.user, req.query.domain);
+    const effectiveDomain = scopedDomain(req.user, req.query.domain);
     if (!effectiveDomain) return res.status(400).json({ success: false, message: 'Please select a specific domain.' });
 
     const toRow = (group: ResultGroup) => (a: Awaited<ReturnType<typeof findGroup>>[number]) => {
@@ -273,7 +265,7 @@ export const getResultLists = async (req: CustomRequest, res: Response) => {
 // failed ones are retried.
 export const sendResultEmails = async (req: CustomRequest, res: Response) => {
   try {
-    const effectiveDomain = resolveDomain(req.user, req.body?.domain);
+    const effectiveDomain = scopedDomain(req.user, req.body?.domain);
     if (!effectiveDomain) return res.status(400).json({ success: false, message: 'Please select a specific domain.' });
     const group = req.body?.group as ResultGroup;
     if (group !== 'SHORTLISTED' && group !== 'REJECTED') {
